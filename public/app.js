@@ -8,7 +8,11 @@ const state = { places: [], current: null, artifact: null, watchId: null, positi
 
 let playback = { owner: null, utterance: null, paused: false };
 function updatePlayback() {
-  $('listen').textContent = `${playback.owner === 'listen' && !playback.paused ? 'Ⅱ' : '▶'} 听完整故事`;
+  for (const button of document.querySelectorAll('[data-play-id]')) {
+    const playing = playback.owner === `play:${button.dataset.playId}` && !playback.paused;
+    button.textContent = playing ? 'Ⅱ' : '▶';
+    button.setAttribute('aria-label', `${playing ? '暂停' : '播放'}${button.dataset.playName}完整故事`);
+  }
 }
 function stopPlayback() {
   if ('speechSynthesis' in window) speechSynthesis.cancel();
@@ -19,8 +23,6 @@ function speak(text, owner = null) {
   stopPlayback();
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = 'zh-CN'; utterance.rate = Number(localStorage.getItem('tour-guide-rate') || '1.0');
-  const chosen = speechSynthesis.getVoices().find(v => v.voiceURI === $('speech-voice').value);
-  if (chosen) utterance.voice = chosen;
   playback = { owner, utterance, paused: false }; updatePlayback();
   utterance.onend = utterance.onerror = () => { if (playback.utterance === utterance) stopPlayback(); };
   speechSynthesis.speak(utterance);
@@ -30,15 +32,6 @@ function togglePlayback(owner, text) {
     if (playback.paused) speechSynthesis.resume(); else speechSynthesis.pause();
     playback.paused = !playback.paused; updatePlayback();
   } else speak(text, owner);
-}
-function renderVoices() {
-  if (!('speechSynthesis' in window)) return;
-  const previous = $('speech-voice').value || localStorage.getItem('tour-guide-voice') || '';
-  $('speech-voice').replaceChildren(new Option('系统默认', ''));
-  for (const voice of speechSynthesis.getVoices().filter(v => v.lang.toLowerCase().startsWith('zh'))) {
-    $('speech-voice').add(new Option(`${voice.name} · ${voice.lang}${voice.localService ? ' · 本机' : ' · 需联网'}`, voice.voiceURI));
-  }
-  if ([...$('speech-voice').options].some(option => option.value === previous)) $('speech-voice').value = previous;
 }
 function renderPlaces() {
   const detail = $('detail');
@@ -53,6 +46,12 @@ function renderPlaces() {
     const arrow = document.createElement('span'); arrow.className = 'arrow'; arrow.textContent = state.current?.id === place.id ? '⌃ 收起' : '⌄ 展开';
     card.append(name, area, arrow); card.onclick = () => state.current?.id === place.id ? collapsePlace() : selectPlace(place);
     top.append(card);
+    const play = document.createElement('button'); play.className = 'play-short'; play.dataset.playId = place.id;
+    play.dataset.playName = place.name; play.type = 'button';
+    play.onclick = () => {
+      if (state.current?.id !== place.id) selectPlace(place);
+      togglePlayback(`play:${place.id}`, state.current.story ?? state.current.intro);
+    }; top.append(play);
     if (place.kind === 'outdoor') {
       const route = document.createElement('button'); route.className = 'route-short'; route.textContent = '高德 ↗';
       route.setAttribute('aria-label', `高德步行去${place.name}`); route.onclick = () => routeTo(place); top.append(route);
@@ -62,6 +61,7 @@ function renderPlaces() {
     $('places').append(wrapper);
   }
   if (!$('places').childElementCount) $('places').textContent = '还没有收藏的景点。';
+  updatePlayback();
 }
 function collapsePlace() {
   stopPlayback(); $('detail').classList.add('hidden'); state.current = null; state.artifact = null; renderPlaces();
@@ -97,8 +97,9 @@ function selectPlace(place, auto = false) {
   $('detail-look').textContent = place.lookFor || '现场细节尚未核实，请看标识。';
   $('answer').classList.add('hidden'); $('question').value = ''; $('photo').value = ''; $('photo-name').textContent = '';
   showSources(place); renderArtifacts(); renderPlaces();
+  $('sources-panel').open = false;
   $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  if (auto) speak(place.story ?? place.intro);
+  if (auto) speak(place.story ?? place.intro, `play:${place.id}`);
 }
 function openMeituan(keyword) {
   const url = `imeituan://www.meituan.com/search?q=${encodeURIComponent(keyword)}`;
@@ -197,7 +198,7 @@ function startLocation() {
 }
 
 $('locate').onclick = startLocation;
-$('listen').onclick = () => togglePlayback('listen', state.artifact?.intro ?? state.current.story ?? state.current.intro);
+ $('collapse-detail').onclick = collapsePlace;
 for (const option of document.querySelectorAll('[data-explore]')) option.onclick = () => explore(option.dataset.explore);
 function updateRates() {
   const saved = localStorage.getItem('tour-guide-rate') || '1.0';
@@ -208,9 +209,6 @@ for (const option of $('speech-rate').querySelectorAll('button')) option.onclick
   if (playback.utterance && !playback.paused) speak(playback.utterance.text, playback.owner);
 };
 updateRates();
-$('speech-voice').onchange = () => localStorage.setItem('tour-guide-voice', $('speech-voice').value);
-renderVoices();
-if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = renderVoices;
 $('photo').onchange = () => { const file = $('photo').files[0]; $('photo-name').textContent = file ? `已选：${file.name}（仅在提问时发送）` : ''; };
 
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;

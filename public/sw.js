@@ -1,4 +1,4 @@
-const CACHE = 'yantu-v7';
+const CACHE = 'yantu-v8';
 const ASSETS = ['/', '/app.js', '/geo.js', '/guide.js', '/places.js', '/restaurants.js', '/style.css', '/icon.svg', '/manifest.webmanifest'];
 self.addEventListener('install', event => { event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS))); self.skipWaiting(); });
 self.addEventListener('activate', event => { event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key))))); self.clients.claim(); });

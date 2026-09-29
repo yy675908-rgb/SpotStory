@@ -2,7 +2,6 @@ package com.spotstory.guide;
 
 import android.Manifest;
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -20,7 +19,6 @@ import android.speech.RecognizerIntent;
 import android.speech.RecognitionListener;
 import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
-import android.speech.tts.Voice;
 import android.speech.tts.UtteranceProgressListener;
 import android.view.View;
 import android.view.MotionEvent;
@@ -43,8 +41,8 @@ public final class MainActivity extends Activity {
     private ScrollView scroll;
     private LinearLayout root, detail, artifacts, explorePanel;
     private TextView statusText, introText, storyText, lookForText, answerText;
-    private Button speakButton;
     private final Button[] rateButtons = new Button[3];
+    private final java.util.Map<String, Button> spotPlayButtons = new java.util.HashMap<>();
     private final java.util.Map<String, LinearLayout> spotCards = new java.util.HashMap<>();
     private final java.util.Map<String, TextView> spotHeaders = new java.util.HashMap<>();
     private Spots.Spot current;
@@ -91,25 +89,25 @@ public final class MainActivity extends Activity {
 
     private void buildScreen() {
         scroll = new ScrollView(this); scroll.setFillViewport(true); scroll.setBackgroundColor(cream);
-        root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(20), dp(24), dp(20), dp(40));
+        root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(24), dp(17), dp(24), dp(32));
         scroll.addView(root); setContentView(scroll);
 
         TextView brand = text("沿途  /  YAN TU", 13, green, true); root.addView(brand);
-        TextView headline = text("走到哪，讲到哪。", 29, ink, true); headline.setPadding(0, dp(14), 0, dp(6)); root.addView(headline);
-        root.addView(text("到点自动讲解，也能手动选景点。史实附来源。", 14, ink, false));
+        TextView headline = text("走到哪，讲到哪", 29, ink, true); headline.setPadding(0, dp(8), 0, dp(4)); root.addView(headline);
+        root.addView(text("播放时说“沿途”提问，能打断讲解。史实附来源。", 12, green, false));
 
         LinearLayout location = card(); location.setBackground(round(green, 18));
-        location.setPadding(dp(16), dp(14), dp(16), dp(14));
+        location.setPadding(dp(20), dp(20), dp(20), dp(22));
         TextView locTitle = text("到点讲解", 18, Color.WHITE, true); location.addView(locTitle);
         statusText = text("定位尚未开启", 13, Color.rgb(218, 237, 227), false);
-        statusText.setPadding(0, dp(4), 0, dp(2)); location.addView(statusText);
+        statusText.setPadding(0, dp(8), 0, dp(9)); location.addView(statusText);
         LinearLayout locationActions = new LinearLayout(this);
         Button start = button("开启到点讲解", Color.rgb(236, 200, 141), ink);
         start.setOnClickListener(v -> enableLocation());
-        locationActions.addView(start, new LinearLayout.LayoutParams(0, dp(48), 1f));
-        Button stop = button("停止", green, Color.WHITE);
+        locationActions.addView(start, new LinearLayout.LayoutParams(0, dp(52), 1f));
+        Button stop = button("停止", Color.rgb(30, 96, 84), Color.WHITE);
         stop.setOnClickListener(v -> { stopService(new Intent(this, GuideService.class)); statusText.setText("到点讲解已停止"); });
-        LinearLayout.LayoutParams stopSize = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        LinearLayout.LayoutParams stopSize = new LinearLayout.LayoutParams(0, dp(52), 1f);
         stopSize.setMargins(dp(6), 0, 0, 0); locationActions.addView(stop, stopSize);
         location.addView(locationActions); root.addView(location);
 
@@ -125,12 +123,34 @@ public final class MainActivity extends Activity {
             option.setOnClickListener(v -> explore(action));
         }
         LinearLayout.LayoutParams exploreMargin = new LinearLayout.LayoutParams(-1, -2);
-        exploreMargin.setMargins(0, dp(16), 0, 0); root.addView(exploreActions, exploreMargin);
+        exploreMargin.setMargins(0, dp(12), 0, 0); root.addView(exploreActions, exploreMargin);
         explorePanel = card(); explorePanel.setVisibility(View.GONE); root.addView(explorePanel);
 
-        TextView section = text("选择眼前的地方", 22, ink, true); section.setPadding(0, dp(20), 0, dp(8)); root.addView(section);
+        LinearLayout section = new LinearLayout(this); section.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        section.setPadding(0, dp(15), 0, dp(3));
+        TextView sectionTitle = text("选择眼前的地方", 19, ink, true);
+        section.addView(sectionTitle, new LinearLayout.LayoutParams(0, -2, 1f));
+        LinearLayout speed = new LinearLayout(this); speed.setOrientation(LinearLayout.VERTICAL);
+        TextView speedTitle = text("语速", 11, green, false); speed.addView(speedTitle);
+        LinearLayout rates = new LinearLayout(this);
+        for (int i = 0; i < rateButtons.length; i++) {
+            final int index = i;
+            Button rate = button(VoiceSettings.RATE_LABELS[i], Color.WHITE, green);
+            rate.setTextSize(12); rate.setPadding(0, 0, 0, 0); rate.setMinWidth(0); rate.setMinimumWidth(0);
+            LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(dp(43), dp(38));
+            if (i > 0) size.setMargins(dp(3), 0, 0, 0);
+            rates.addView(rate, size); rateButtons[i] = rate;
+            rate.setOnClickListener(v -> {
+                VoiceSettings.setRate(this, index); updateRateButtons();
+                if (ttsReady) VoiceSettings.apply(this, tts);
+                if (speaking) { speechGeneration++; playNextChunk(); }
+            });
+        }
+        speed.addView(rates); section.addView(speed); root.addView(section); updateRateButtons();
         for (Spots.Spot spot : Spots.ALL) {
             LinearLayout spotCard = card(); spotCards.put(spot.id, spotCard);
+            LinearLayout.LayoutParams cardSize = (LinearLayout.LayoutParams) spotCard.getLayoutParams();
+            cardSize.setMargins(dp(4), dp(8), dp(4), 0); spotCard.setLayoutParams(cardSize);
             LinearLayout header = new LinearLayout(this); header.setGravity(android.view.Gravity.CENTER_VERTICAL);
             TextView item = text(spot.name + "  ⌄\n" + spot.area, 17, ink, false);
             spotHeaders.put(spot.id, item);
@@ -149,52 +169,48 @@ public final class MainActivity extends Activity {
                 return true;
             });
             header.addView(item, new LinearLayout.LayoutParams(0, -2, 1f));
+            Button play = button("▶", Color.rgb(239, 246, 238), green);
+            play.setTextSize(20); play.setPadding(0, 0, 0, 0);
+            play.setContentDescription("播放" + spot.name + "完整故事");
+            play.setOnClickListener(v -> {
+                if (current != spot || detail.getParent() != spotCard) showSpot(spot);
+                toggleNarration(play, spot.story);
+            });
+            LinearLayout.LayoutParams playSize = new LinearLayout.LayoutParams(dp(44), dp(46));
+            playSize.setMargins(dp(4), 0, 0, 0); header.addView(play, playSize);
+            spotPlayButtons.put(spot.id, play);
             if (spot.radius > 0) {
                 Button route = button("高德 ↗", Color.rgb(236, 200, 141), ink);
                 route.setContentDescription("高德步行去" + spot.name);
                 route.setOnClickListener(v -> navigateTo(spot));
-                LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(dp(88), dp(50));
-                size.setMargins(dp(8), 0, 0, 0); header.addView(route, size);
+                route.setTextSize(13); route.setPadding(0, 0, 0, 0);
+                LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(dp(72), dp(46));
+                size.setMargins(dp(4), 0, 0, 0); header.addView(route, size);
             }
             spotCard.addView(header); root.addView(spotCard);
         }
 
         detail = new LinearLayout(this); detail.setOrientation(LinearLayout.VERTICAL);
-        detail.setPadding(0, dp(13), 0, 0);
-        introText = text("", 16, ink, false); introText.setLineSpacing(dp(4), 1f); detail.addView(introText);
-        TextView findHeading = text("到现场看哪里", 18, green, true);
-        findHeading.setPadding(0, dp(18), 0, dp(5)); detail.addView(findHeading);
-        lookForText = text("", 15, ink, false); lookForText.setLineSpacing(dp(4), 1f); detail.addView(lookForText);
-        TextView storyHeading = text("再听一段 · 历史与典故", 18, green, true);
-        storyHeading.setPadding(0, dp(18), 0, dp(5)); detail.addView(storyHeading);
-        storyText = text("", 15, ink, false); storyText.setLineSpacing(dp(5), 1f); detail.addView(storyText);
-        artifacts = new LinearLayout(this); artifacts.setOrientation(LinearLayout.VERTICAL); detail.addView(artifacts);
-        speakButton = button("▶ 听完整故事", green, Color.WHITE);
-        speakButton.setOnClickListener(v -> toggleNarration(speakButton, current == null ? "" : current.story)); detail.addView(speakButton);
-        detail.addView(text("语速", 14, green, true));
-        LinearLayout rates = new LinearLayout(this); rates.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        for (int i = 0; i < rateButtons.length; i++) {
-            final int index = i;
-            Button rate = button(VoiceSettings.RATE_LABELS[i], Color.WHITE, green);
-            LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(0, dp(48), 1f);
-            size.setMargins(i == 0 ? 0 : dp(4), 0, 0, 0);
-            rates.addView(rate, size); rateButtons[i] = rate;
-            rate.setOnClickListener(v -> {
-                VoiceSettings.setRate(this, index); updateRateButtons();
-                if (ttsReady) VoiceSettings.apply(this, tts);
-                if (speaking) { speechGeneration++; playNextChunk(); }
-            });
-        }
-        detail.addView(rates); updateRateButtons();
-        Button voiceChoice = button("选择手机中文音色", Color.WHITE, green);
-        voiceChoice.setOnClickListener(v -> chooseVoice()); detail.addView(voiceChoice);
-        detail.addView(text("播放时说“沿途”再提问，可打断讲解。需授权麦克风，并保持应用在前台。", 13, green, false));
-        answerText = text("", 15, ink, false); answerText.setPadding(0, dp(8), 0, dp(6)); detail.addView(answerText);
-        Button source = button("查看资料来源 ↗", Color.WHITE, green);
+        detail.setPadding(0, dp(6), 0, 0);
+        LinearLayout sourceRow = new LinearLayout(this); sourceRow.setGravity(android.view.Gravity.END);
+        Button source = button("来源 ↗", Color.rgb(239, 246, 238), green);
+        source.setTextSize(12); source.setPadding(0, 0, 0, 0);
+        source.setContentDescription("查看资料来源");
         source.setOnClickListener(v -> { if (current != null) startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(current.source))); });
-        detail.addView(source);
+        sourceRow.addView(source, new LinearLayout.LayoutParams(dp(70), dp(36))); detail.addView(sourceRow);
+        introText = text("", 16, ink, false); introText.setLineSpacing(dp(2), 1f); detail.addView(introText);
+        TextView findHeading = text("到现场看哪里", 18, green, true);
+        findHeading.setPadding(0, dp(13), 0, dp(4)); detail.addView(findHeading);
+        lookForText = text("", 15, ink, false); lookForText.setLineSpacing(dp(2), 1f); detail.addView(lookForText);
+        TextView storyHeading = text("再听一段 · 历史与典故", 18, green, true);
+        storyHeading.setPadding(0, dp(13), 0, dp(4)); detail.addView(storyHeading);
+        storyText = text("", 15, ink, false); storyText.setLineSpacing(dp(2), 1f); detail.addView(storyText);
+        artifacts = new LinearLayout(this); artifacts.setOrientation(LinearLayout.VERTICAL); detail.addView(artifacts);
+        answerText = text("", 15, ink, false); answerText.setPadding(0, dp(8), 0, dp(6)); detail.addView(answerText);
+        Button collapse = button("⌃ 收起讲解", Color.rgb(239, 246, 238), green);
+        collapse.setOnClickListener(v -> collapseSpot()); detail.addView(collapse);
         TextView note = text("长沙讲解点持续扩充。步行路线由高德地图规划；GPS 无法可靠判断具体岔路或馆内展柜。到点讲解会在通知栏运行，停止后不再定位。", 12, Color.rgb(97, 116, 106), false);
-        note.setPadding(0, dp(14), 0, 0); root.addView(note);
+        note.setPadding(0, dp(10), 0, 0); root.addView(note);
     }
 
     private void showSpot(Spots.Spot spot) {
@@ -210,7 +226,7 @@ public final class MainActivity extends Activity {
         answerText.setText(""); artifacts.removeAllViews();
         if (!spot.artifacts.isEmpty()) {
             TextView label = text("馆内值得看 · 看到展品后选择", 14, green, true);
-            label.setPadding(0, dp(16), 0, dp(3)); artifacts.addView(label);
+            label.setPadding(0, dp(12), 0, dp(3)); artifacts.addView(label);
             for (Spots.Artifact artifact : spot.artifacts) {
                 Button item = button(artifact.name, Color.rgb(239, 246, 238), green);
                 item.setOnClickListener(v -> { answerText.setText(artifact.intro); say(artifact.intro); }); artifacts.addView(item);
@@ -535,22 +551,13 @@ public final class MainActivity extends Activity {
         updateSpeechButtons();
     }
     private void updateSpeechButtons() {
-        if (speakButton != null) speakButton.setText((speaking && speechButton == speakButton ? "Ⅱ" : "▶") + " 听完整故事");
-    }
-    private void chooseVoice() {
-        if (!ttsReady) { answerText.setText("系统中文语音尚未就绪"); return; }
-        List<Voice> voices = VoiceSettings.chineseVoices(tts);
-        if (voices.isEmpty()) { answerText.setText("手机当前没有可选的中文音色，可在系统语音设置安装"); return; }
-        String[] labels = new String[voices.size()];
-        for (int i = 0; i < voices.size(); i++) {
-            Voice voice = voices.get(i);
-            labels[i] = voice.getName() + (voice.isNetworkConnectionRequired() ? " · 需联网" : " · 本机");
+        for (Spots.Spot spot : Spots.ALL) {
+            Button button = spotPlayButtons.get(spot.id);
+            if (button == null) continue;
+            boolean playing = speaking && speechButton == button;
+            button.setText(playing ? "Ⅱ" : "▶");
+            button.setContentDescription((playing ? "暂停" : "播放") + spot.name + "完整故事");
         }
-        new AlertDialog.Builder(this).setTitle("选择中文音色（取决于手机语音引擎）")
-            .setItems(labels, (dialog, index) -> {
-                VoiceSettings.setVoice(this, voices.get(index).getName());
-                VoiceSettings.apply(this, tts); say("你好，这里是沿途。我们慢慢听一段故事。");
-            }).setNegativeButton("取消", null).show();
     }
     private void navigateTo(Spots.Spot spot) {
         if (spot == null) return;
@@ -628,7 +635,7 @@ public final class MainActivity extends Activity {
         lastArrivalHandled = arrival;
         String id = guide.getString("arrival_spot", "");
         for (Spots.Spot spot : Spots.ALL) if (spot.id.equals(id)) {
-            showSpot(spot); if (ttsReady) say(spot.story); ensureHandsFree(); break;
+            showSpot(spot); if (ttsReady) startNarration(spot.story, spotPlayButtons.get(spot.id)); ensureHandsFree(); break;
         }
     }
     @Override protected void onResume() { super.onResume(); foreground = true; handler.post(refresh); scheduleListening(); }
@@ -645,8 +652,8 @@ public final class MainActivity extends Activity {
     }
     private LinearLayout card() {
         LinearLayout layout = new LinearLayout(this); layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(dp(18), dp(18), dp(18), dp(18)); layout.setBackground(round(Color.WHITE, 18));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2); params.setMargins(0, dp(12), 0, 0);
+        layout.setPadding(dp(14), dp(14), dp(14), dp(14)); layout.setBackground(round(Color.WHITE, 18));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2); params.setMargins(0, dp(8), 0, 0);
         layout.setLayoutParams(params); return layout;
     }
     private Button button(String value, int background, int foreground) {
