@@ -51,7 +51,7 @@ public final class MainActivity extends Activity {
         root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(20), dp(24), dp(20), dp(40));
         scroll.addView(root); setContentView(scroll);
 
-        TextView brand = text("SPOTSTORY  /  沿途", 13, green, true); root.addView(brand);
+        TextView brand = text("沿途  /  YAN TU", 13, green, true); root.addView(brand);
         TextView headline = text("走到哪，讲到哪。", 29, ink, true); headline.setPadding(0, dp(14), 0, dp(6)); root.addView(headline);
         root.addView(text("到点自动讲解，也能手动选景点。史实附来源。", 14, ink, false));
 

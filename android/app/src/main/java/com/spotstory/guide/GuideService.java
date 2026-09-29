@@ -81,7 +81,7 @@ public final class GuideService extends Service implements LocationListener, Tex
         PendingIntent openIntent = PendingIntent.getActivity(this, 0, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Intent stop = new Intent(this, GuideService.class).setAction(ACTION_STOP);
         PendingIntent stopIntent = PendingIntent.getService(this, 1, stop, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        return new Notification.Builder(this, CHANNEL).setContentTitle("SpotStory · 到点讲解")
+        return new Notification.Builder(this, CHANNEL).setContentTitle("沿途 · 到点讲解")
             .setContentText(detail).setSmallIcon(R.drawable.ic_spotstory).setContentIntent(openIntent)
             .addAction(new Notification.Action.Builder(null, "停止", stopIntent).build()).setOngoing(true).build();
     }
