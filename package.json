@@ -6,6 +6,7 @@
   "description": "有出处的中文景点语音讲解 PWA",
   "scripts": {
     "start": "node server.js",
+    "build:static": "node scripts/build-static.js",
     "test": "node --test"
   },
   "engines": { "node": ">=20" }

@@ -1,4 +1,5 @@
 import { nearestPlace } from '/geo.js';
+import { places as bundledPlaces } from '/places.js';
 
 const $ = id => document.getElementById(id);
 const state = { places: [], current: null, artifact: null, watchId: null, triggered: new Set(), favorites: new Set(), onlyFavorites: false, aiEnabled: false };
@@ -89,6 +90,7 @@ function imageData(file) {
 }
 $('ask-form').onsubmit = async event => {
   event.preventDefault(); if (!state.current) return;
+  if (!state.aiEnabled) { $('answer').textContent = 'AI 追问尚未配置。景点文字讲解和朗读可直接使用。'; $('answer').classList.remove('hidden'); return; }
   const file = $('photo').files[0];
   if (file && (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 4 * 1024 * 1024)) { $('answer').textContent = '照片需为小于 4 MB 的 JPEG、PNG 或 WebP。'; $('answer').classList.remove('hidden'); return; }
   const placeId = state.current.id, artifactId = state.artifact?.id;
@@ -101,9 +103,11 @@ $('ask-form').onsubmit = async event => {
   finally { $('ask').disabled = false; }
 };
 
+state.places = bundledPlaces;
 try {
-  const response = await fetch('/api/places'); if (!response.ok) throw new Error();
-  const data = await response.json(); state.places = data.places; state.aiEnabled = data.aiEnabled; renderPlaces();
-  if (!state.aiEnabled) $('question').placeholder = 'AI 问答需先在服务端配置接口；文字讲解可直接使用';
-} catch { $('places').textContent = '暂时无法载入景点资料，请刷新重试。'; }
+  const response = await fetch('/api/places');
+  if (response.ok) { const data = await response.json(); state.places = data.places; state.aiEnabled = data.aiEnabled; }
+} catch { /* 静态站点使用随应用附带的核实讲解 */ }
+renderPlaces();
+if (!state.aiEnabled) $('question').placeholder = 'AI 问答需先配置接口；文字讲解可直接使用';
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
