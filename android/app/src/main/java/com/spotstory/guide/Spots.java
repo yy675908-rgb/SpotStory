@@ -62,16 +62,24 @@ final class Spots {
 
     static String answer(Spot spot, String question) {
         if (spot.id.equals("aiwan")) {
+            if (question.contains("为什么叫") || question.contains("名字") || question.contains("典故") || question.contains("谁取名"))
+                return "它起初叫红叶亭，也叫爱枫亭。后来毕沅借杜牧《山行》的晚秋枫林诗意，改名爱晚亭。";
             if (question.contains("谁建") || question.contains("谁修") || question.contains("哪年") || question.contains("什么时候建"))
                 return "岳麓书院山长罗典在1792年初建，1952年重建。";
             if (question.contains("题字") || question.contains("匾额"))
                 return "现在匾额上的字是毛泽东应湖南大学校长李达邀请题写的。";
+            if (question.contains("历史") || question.contains("价值") || question.contains("毛泽东") || question.contains("蔡和森"))
+                return "1913年至1918年，毛泽东在长沙求学时曾与蔡和森等人在这里讨论时局；这座亭也联系着书院文化与唐诗意象。";
         }
+        if (spot.id.equals("juzizhou") && (question.contains("诗") || question.contains("典故") || question.contains("历史") || question.contains("价值")))
+            return "1925年毛泽东重游橘子洲，写下《沁园春·长沙》。附近的诗词碑刻有他1961年手书的这首词。";
         if (spot.id.equals("juzizhou") && (question.contains("哪年") || question.contains("什么形象") || question.contains("谁")))
             return "雕塑以1925年前后的青年毛泽东形象为基础。";
         if (spot.id.equals("mawangdui") && (question.contains("帛") || question.contains("墓坑")))
             return question.contains("墓坑") ? spot.artifacts.get(2).intro : spot.artifacts.get(0).intro;
-        return "这处目前只有已核对的简短讲解，资料不足以回答这个问题。";
+        if (spot.id.equals("mawangdui") && (question.contains("价值") || question.contains("历史") || question.contains("简") || question.contains("医学")))
+            return "马王堆出土的漆器、丝织品和简帛，把西汉初年的生活技艺、知识与思想留在具体文物里。展览还以墓葬结构呈现当时的生命观。";
+        return "这个问题暂时没有核实过的答案。你可以听完整故事，或点开资料来源继续看。";
     }
 
     private Spots() {}

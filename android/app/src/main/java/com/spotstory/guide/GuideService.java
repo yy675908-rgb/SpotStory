@@ -88,7 +88,7 @@ public final class GuideService extends Service implements LocationListener, Tex
 
     private void status(String value) { getSharedPreferences("guide", MODE_PRIVATE).edit().putString("status", value).apply(); }
     private void say(String value) {
-        if (ttsReady) tts.speak(value, TextToSpeech.QUEUE_FLUSH, null, "arrival");
+        if (ttsReady) { VoiceSettings.apply(this, tts); tts.speak(value, TextToSpeech.QUEUE_FLUSH, null, "arrival"); }
         else pendingSpeech = value;
     }
     @Override public void onInit(int result) {
