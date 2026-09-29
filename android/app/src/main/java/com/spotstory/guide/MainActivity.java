@@ -40,9 +40,9 @@ public final class MainActivity extends Activity {
     private boolean ttsReady;
     private ScrollView scroll;
     private LinearLayout root, detail, artifacts, explorePanel;
-    private TextView statusText, introText, storyText, lookForText, answerText;
-    private final Button[] rateButtons = new Button[3];
-    private final java.util.Map<String, Button> spotPlayButtons = new java.util.HashMap<>();
+    private TextView statusText, introText, storyText, lookForText, answerText, voiceStatusText;
+    private final TextView[] rateButtons = new TextView[3];
+    private final java.util.Map<String, TextView> spotPlayButtons = new java.util.HashMap<>();
     private final java.util.Map<String, LinearLayout> spotCards = new java.util.HashMap<>();
     private final java.util.Map<String, TextView> spotHeaders = new java.util.HashMap<>();
     private Spots.Spot current;
@@ -52,13 +52,14 @@ public final class MainActivity extends Activity {
     private long speechGeneration;
     private String activeSpeechId;
     private boolean speaking;
-    private Button speechButton;
+    private TextView speechButton;
     private int pendingExploreAction;
     private final List<android.location.LocationListener> exploreListeners = new ArrayList<>();
     private Runnable exploreTimeout;
     private int exploreRequestToken;
     private SpeechRecognizer recognizer;
     private boolean handsFree, listening, waitingForQuestion, foreground;
+    private int recognitionFailures;
     private final Runnable restartListening = this::listenAgain;
 
     @Override protected void onCreate(Bundle state) {
@@ -94,7 +95,8 @@ public final class MainActivity extends Activity {
 
         TextView brand = text("沿途  /  YAN TU", 13, green, true); root.addView(brand);
         TextView headline = text("走到哪，讲到哪", 29, ink, true); headline.setPadding(0, dp(8), 0, dp(4)); root.addView(headline);
-        root.addView(text("播放时说“沿途”提问，能打断讲解。史实附来源。", 12, green, false));
+        voiceStatusText = text("播讲时说“沿途”提问 · 史实附来源", 12, green, false);
+        root.addView(voiceStatusText);
 
         LinearLayout location = card(); location.setBackground(round(green, 18));
         location.setPadding(dp(20), dp(20), dp(20), dp(22));
@@ -130,29 +132,28 @@ public final class MainActivity extends Activity {
         section.setPadding(0, dp(15), 0, dp(3));
         TextView sectionTitle = text("选择眼前的地方", 19, ink, true);
         section.addView(sectionTitle, new LinearLayout.LayoutParams(0, -2, 1f));
-        LinearLayout speed = new LinearLayout(this); speed.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout speed = new LinearLayout(this); speed.setGravity(android.view.Gravity.CENTER_VERTICAL);
         TextView speedTitle = text("语速", 11, green, false); speed.addView(speedTitle);
-        LinearLayout rates = new LinearLayout(this);
         for (int i = 0; i < rateButtons.length; i++) {
             final int index = i;
-            Button rate = button(VoiceSettings.RATE_LABELS[i], Color.WHITE, green);
-            rate.setTextSize(12); rate.setPadding(0, 0, 0, 0); rate.setMinWidth(0); rate.setMinimumWidth(0);
-            LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(dp(43), dp(38));
-            if (i > 0) size.setMargins(dp(3), 0, 0, 0);
-            rates.addView(rate, size); rateButtons[i] = rate;
+            TextView rate = text(VoiceSettings.RATE_LABELS[i], 12, green, false);
+            rate.setGravity(android.view.Gravity.CENTER); rate.setPadding(dp(3), dp(11), dp(3), dp(11));
+            LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(-2, -2);
+            size.setMargins(dp(3), 0, 0, 0);
+            speed.addView(rate, size); rateButtons[i] = rate;
             rate.setOnClickListener(v -> {
                 VoiceSettings.setRate(this, index); updateRateButtons();
                 if (ttsReady) VoiceSettings.apply(this, tts);
                 if (speaking) { speechGeneration++; playNextChunk(); }
             });
         }
-        speed.addView(rates); section.addView(speed); root.addView(section); updateRateButtons();
+        section.addView(speed); root.addView(section); updateRateButtons();
+        LinearLayout spotList = card(); spotList.setPadding(dp(12), dp(2), dp(12), dp(4)); root.addView(spotList);
         for (Spots.Spot spot : Spots.ALL) {
-            LinearLayout spotCard = card(); spotCards.put(spot.id, spotCard);
-            LinearLayout.LayoutParams cardSize = (LinearLayout.LayoutParams) spotCard.getLayoutParams();
-            cardSize.setMargins(dp(4), dp(8), dp(4), 0); spotCard.setLayoutParams(cardSize);
+            LinearLayout spotCard = new LinearLayout(this); spotCard.setOrientation(LinearLayout.VERTICAL);
+            spotCard.setPadding(dp(2), dp(9), dp(2), dp(9)); spotCards.put(spot.id, spotCard);
             LinearLayout header = new LinearLayout(this); header.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            TextView item = text(spot.name + "  ⌄\n" + spot.area, 17, ink, false);
+            TextView item = text(spot.name + "  ⌄\n" + spot.area, 15, ink, false);
             spotHeaders.put(spot.id, item);
             item.setPadding(0, dp(6), 0, dp(6)); item.setContentDescription(spot.name + "，展开或收起讲解");
             item.setOnClickListener(v -> { if (current == spot && detail.getParent() == spotCard) collapseSpot(); else showSpot(spot); });
@@ -169,15 +170,15 @@ public final class MainActivity extends Activity {
                 return true;
             });
             header.addView(item, new LinearLayout.LayoutParams(0, -2, 1f));
-            Button play = button("▶", Color.rgb(239, 246, 238), green);
-            play.setTextSize(20); play.setPadding(0, 0, 0, 0);
+            TextView play = text("▶", 20, green, false);
+            play.setGravity(android.view.Gravity.CENTER);
             play.setContentDescription("播放" + spot.name + "完整故事");
             play.setOnClickListener(v -> {
                 if (current != spot || detail.getParent() != spotCard) showSpot(spot);
                 toggleNarration(play, spot.story);
             });
-            LinearLayout.LayoutParams playSize = new LinearLayout.LayoutParams(dp(44), dp(46));
-            playSize.setMargins(dp(4), 0, 0, 0); header.addView(play, playSize);
+            LinearLayout.LayoutParams playSize = new LinearLayout.LayoutParams(dp(44), dp(48));
+            playSize.setMargins(dp(2), 0, 0, 0); header.addView(play, playSize);
             spotPlayButtons.put(spot.id, play);
             if (spot.radius > 0) {
                 Button route = button("高德 ↗", Color.rgb(236, 200, 141), ink);
@@ -185,19 +186,23 @@ public final class MainActivity extends Activity {
                 route.setOnClickListener(v -> navigateTo(spot));
                 route.setTextSize(13); route.setPadding(0, 0, 0, 0);
                 LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(dp(72), dp(46));
-                size.setMargins(dp(4), 0, 0, 0); header.addView(route, size);
+                size.setMargins(dp(12), 0, 0, 0); header.addView(route, size);
             }
-            spotCard.addView(header); root.addView(spotCard);
+            spotCard.addView(header); spotList.addView(spotCard);
+            if (spot != Spots.ALL.get(Spots.ALL.size() - 1)) {
+                View divider = new View(this); divider.setBackgroundColor(Color.rgb(231, 234, 225));
+                spotList.addView(divider, new LinearLayout.LayoutParams(-1, dp(1)));
+            }
         }
 
         detail = new LinearLayout(this); detail.setOrientation(LinearLayout.VERTICAL);
         detail.setPadding(0, dp(6), 0, 0);
         LinearLayout sourceRow = new LinearLayout(this); sourceRow.setGravity(android.view.Gravity.END);
-        Button source = button("来源 ↗", Color.rgb(239, 246, 238), green);
-        source.setTextSize(12); source.setPadding(0, 0, 0, 0);
+        TextView source = text("资料来源 ↗", 12, green, false);
+        source.setGravity(android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.RIGHT);
         source.setContentDescription("查看资料来源");
         source.setOnClickListener(v -> { if (current != null) startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(current.source))); });
-        sourceRow.addView(source, new LinearLayout.LayoutParams(dp(70), dp(36))); detail.addView(sourceRow);
+        sourceRow.addView(source, new LinearLayout.LayoutParams(dp(86), dp(44))); detail.addView(sourceRow);
         introText = text("", 16, ink, false); introText.setLineSpacing(dp(2), 1f); detail.addView(introText);
         TextView findHeading = text("到现场看哪里", 18, green, true);
         findHeading.setPadding(0, dp(13), 0, dp(4)); detail.addView(findHeading);
@@ -245,8 +250,12 @@ public final class MainActivity extends Activity {
     private void updateRateButtons() {
         for (int i = 0; i < rateButtons.length; i++) if (rateButtons[i] != null) {
             boolean selected = i == VoiceSettings.rateIndex(this);
-            rateButtons[i].setBackground(round(selected ? green : Color.rgb(239, 246, 238), 10));
-            rateButtons[i].setTextColor(selected ? Color.WHITE : green);
+            rateButtons[i].setBackground(null);
+            rateButtons[i].setTextColor(selected ? green : Color.rgb(108, 134, 122));
+            rateButtons[i].setTypeface(Typeface.DEFAULT, selected ? Typeface.BOLD : Typeface.NORMAL);
+            rateButtons[i].setPaintFlags(selected
+                ? rateButtons[i].getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG
+                : rateButtons[i].getPaintFlags() & ~android.graphics.Paint.UNDERLINE_TEXT_FLAG);
         }
     }
 
@@ -399,7 +408,7 @@ public final class MainActivity extends Activity {
             else showExploreError("请授权定位后再查当前位置周边。");
         } else if (requestCode == MIC_REQUEST) {
             if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) enableHandsFree();
-            else answerText.setText("未获麦克风权限；文字和播放仍可用。可在系统设置中开启权限。");
+            else voiceStatusText.setText("未授权麦克风，无法语音打断 · 史实附来源");
         }
     }
     private void startGuide() {
@@ -447,20 +456,25 @@ public final class MainActivity extends Activity {
     }
 
     private void ensureHandsFree() {
-        if (handsFree) return;
+        if (handsFree) { scheduleListening(); return; }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            voiceStatusText.setText("请授权麦克风，才能说“沿途”打断 · 史实附来源");
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, MIC_REQUEST); return;
         }
         enableHandsFree();
     }
     private void enableHandsFree() {
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            answerText.setText("这台手机没有可用的语音识别服务，暂不能免触屏提问。"); return;
+            voiceStatusText.setText("手机缺少语音识别服务，暂无法语音打断 · 史实附来源"); return;
         }
+        if (recognizer != null) recognizer.destroy();
         handsFree = true;
+        recognitionFailures = 0;
         recognizer = SpeechRecognizer.createSpeechRecognizer(this);
         recognizer.setRecognitionListener(new RecognitionListener() {
-            @Override public void onReadyForSpeech(Bundle params) { }
+            @Override public void onReadyForSpeech(Bundle params) {
+                voiceStatusText.setText("正在听“沿途” · 史实附来源");
+            }
             @Override public void onBeginningOfSpeech() { }
             @Override public void onRmsChanged(float rmsdB) { }
             @Override public void onBufferReceived(byte[] buffer) { }
@@ -468,16 +482,16 @@ public final class MainActivity extends Activity {
             @Override public void onEvent(int eventType, Bundle params) { }
             @Override public void onPartialResults(Bundle partial) {
                 String phrase = recognizedText(partial);
-                if (!waitingForQuestion && phrase.contains("沿途")) {
-                    waitingForQuestion = true; GuideService.pauseSpeech(); stopNarration(); answerText.setText("我在听，接着说你的问题…");
-                }
+                if (!waitingForQuestion && wakeIndex(phrase) >= 0) interruptForQuestion();
             }
             @Override public void onResults(Bundle results) {
                 listening = false;
+                recognitionFailures = 0;
                 String phrase = recognizedText(results);
-                if (phrase.contains("沿途")) {
-                    if (!waitingForQuestion) { waitingForQuestion = true; GuideService.pauseSpeech(); stopNarration(); }
-                    phrase = phrase.substring(phrase.indexOf("沿途") + 2).trim();
+                int wake = wakeIndex(phrase);
+                if (wake >= 0) {
+                    if (!waitingForQuestion) interruptForQuestion();
+                    phrase = phrase.substring(wake + 2).trim();
                 } else if (!waitingForQuestion) { scheduleListening(); return; }
                 if (!phrase.isEmpty()) {
                     waitingForQuestion = false;
@@ -487,35 +501,58 @@ public final class MainActivity extends Activity {
             }
             @Override public void onError(int error) {
                 listening = false;
+                if (!foreground || (!speaking && !waitingForQuestion)) return;
                 if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
-                    handsFree = false; answerText.setText("麦克风权限已关闭，免触屏提问已停止。"); return;
+                    handsFree = false;
+                    voiceStatusText.setText("麦克风权限已关闭，无法语音打断 · 史实附来源"); return;
                 }
-                if (error == SpeechRecognizer.ERROR_NETWORK || error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT ||
-                    error == SpeechRecognizer.ERROR_SERVER) {
-                    handsFree = false; answerText.setText("语音识别服务暂不可用，稍后再点播放重试。"); return;
+                if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                    if (++recognitionFailures >= 3) {
+                        handsFree = false;
+                        voiceStatusText.setText("语音识别不可用（错误 " + error + "），点播放可重试 · 史实附来源");
+                        return;
+                    }
+                    voiceStatusText.setText("语音识别重试中（错误 " + error + "） · 史实附来源");
                 }
                 scheduleListening();
             }
         });
-        answerText.setText("免触屏提问已开启。播讲时说“沿途”再提问。");
+        voiceStatusText.setText("语音识别准备中 · 史实附来源");
         scheduleListening();
+    }
+    private int wakeIndex(String phrase) {
+        int index = phrase.indexOf("沿途");
+        return index >= 0 ? index : phrase.indexOf("沿图");
+    }
+    private void interruptForQuestion() {
+        waitingForQuestion = true;
+        GuideService.pauseSpeech(); stopNarration();
+        voiceStatusText.setText("我在听你的问题 · 史实附来源");
+        answerText.setText("我在听，接着说你的问题…");
     }
     private String recognizedText(Bundle result) {
         ArrayList<String> matches = result.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-        return matches == null || matches.isEmpty() ? "" : matches.get(0);
+        if (matches == null || matches.isEmpty()) return "";
+        for (String match : matches) if (wakeIndex(match) >= 0) return match;
+        return matches.get(0);
     }
     private void scheduleListening() {
         handler.removeCallbacks(restartListening);
-        if (handsFree && foreground && current != null) handler.postDelayed(restartListening, 600);
+        if (handsFree && foreground && current != null && (speaking || waitingForQuestion))
+            handler.postDelayed(restartListening, recognitionFailures > 0 ? 1000 : 250);
     }
     private void listenAgain() {
-        if (!handsFree || !foreground || current == null || listening || recognizer == null) return;
+        if (!handsFree || !foreground || current == null || (!speaking && !waitingForQuestion) ||
+            listening || recognizer == null) return;
         Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN");
         intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
         try { recognizer.startListening(intent); listening = true; }
-        catch (RuntimeException e) { listening = false; answerText.setText("语音监听暂不可用，请稍后重试播放。"); }
+        catch (RuntimeException e) {
+            listening = false; handsFree = false;
+            voiceStatusText.setText("语音监听无法启动，点播放可重试 · 史实附来源");
+        }
     }
     private void stopListening() {
         handler.removeCallbacks(restartListening);
@@ -524,14 +561,18 @@ public final class MainActivity extends Activity {
     }
 
     private void say(String content) { startNarration(content, null); }
-    private void toggleNarration(Button button, String content) {
+    private void toggleNarration(TextView button, String content) {
         if (speechButton == button && !speechChunks.isEmpty()) {
-            if (speaking) { speaking = false; speechGeneration++; activeSpeechId = null; tts.stop(); updateSpeechButtons(); }
+            if (speaking) {
+                speaking = false; speechGeneration++; activeSpeechId = null; tts.stop();
+                stopListening(); voiceStatusText.setText("播讲时说“沿途”提问 · 史实附来源");
+                updateSpeechButtons();
+            }
             else { speaking = true; playNextChunk(); updateSpeechButtons(); }
         } else startNarration(content, button);
-        ensureHandsFree();
+        if (speaking) ensureHandsFree();
     }
-    private void startNarration(String content, Button button) {
+    private void startNarration(String content, TextView button) {
         if (!ttsReady) { answerText.setText("系统中文语音尚未就绪，可阅读文字讲解"); return; }
         stopNarration();
         for (String part : content.split("(?<=[。！？；])|\\n+")) if (!part.trim().isEmpty()) speechChunks.add(part.trim());
@@ -548,11 +589,15 @@ public final class MainActivity extends Activity {
         speaking = false; speechGeneration++; speechIndex = 0;
         speechChunks.clear(); activeSpeechId = null; speechButton = null;
         if (tts != null) tts.stop();
+        if (!waitingForQuestion) {
+            stopListening();
+            if (voiceStatusText != null) voiceStatusText.setText("播讲时说“沿途”提问 · 史实附来源");
+        }
         updateSpeechButtons();
     }
     private void updateSpeechButtons() {
         for (Spots.Spot spot : Spots.ALL) {
-            Button button = spotPlayButtons.get(spot.id);
+            TextView button = spotPlayButtons.get(spot.id);
             if (button == null) continue;
             boolean playing = speaking && speechButton == button;
             button.setText(playing ? "Ⅱ" : "▶");
