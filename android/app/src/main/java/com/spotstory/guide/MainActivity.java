@@ -29,11 +29,12 @@ import android.widget.TextView;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.List;
+import java.lang.ref.WeakReference;
 
 public final class MainActivity extends Activity {
     private static final int LOCATION_REQUEST = 10, VOICE_REQUEST = 11, MIC_REQUEST = 12, EXPLORE_LOCATION_REQUEST = 13, NOTICE_REQUEST = 14;
     private static final int EXPLORE_FOOD = 1, EXPLORE_FUN = 2, EXPLORE_NIGHT = 3, EXPLORE_SHOW = 4;
-    private final int green = Color.rgb(18, 76, 68), ink = Color.rgb(23, 53, 47), cream = Color.rgb(251, 250, 246);
+    private final int green = Color.rgb(18, 76, 68), ink = Color.rgb(23, 53, 47), cream = Color.rgb(250, 250, 248);
     private final int sage = Color.rgb(220, 237, 229), accent = Color.rgb(204, 231, 220);
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable refresh = new Runnable() { @Override public void run() { updateStatus(); handler.postDelayed(this, 3000); } };
@@ -62,12 +63,23 @@ public final class MainActivity extends Activity {
     private boolean handsFree, listening, waitingForQuestion, foreground;
     private int recognitionFailures;
     private boolean useOnDeviceRecognizer, triedOnDeviceFallback;
+    private boolean askedNoticePermission;
+    private String voiceProblem = "";
     private String lastNonWake = "";
     private final Runnable restartListening = this::listenAgain;
+    private static WeakReference<MainActivity> noticeActivity = new WeakReference<>(null);
+
+    static boolean toggleFromNotice() {
+        MainActivity activity = noticeActivity.get();
+        if (activity == null || activity.speechChunks.isEmpty()) return false;
+        activity.toggleNarration(activity.speechButton, "");
+        return true;
+    }
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        getWindow().setStatusBarColor(sage); getWindow().setNavigationBarColor(cream);
+        noticeActivity = new WeakReference<>(this);
+        getWindow().setStatusBarColor(cream); getWindow().setNavigationBarColor(cream);
         getWindow().getDecorView().setSystemUiVisibility(
             View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         tts = new TextToSpeech(this, result -> {
@@ -95,19 +107,21 @@ public final class MainActivity extends Activity {
 
     private void buildScreen() {
         scroll = new ScrollView(this); scroll.setFillViewport(true); scroll.setBackgroundColor(cream);
-        root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(18), dp(4), dp(18), dp(24));
+        root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL);
         scroll.addView(root); setContentView(scroll);
 
-        LinearLayout hero = new LinearLayout(this); hero.setOrientation(LinearLayout.VERTICAL);
-        hero.setBackground(round(sage, 20)); hero.setPadding(dp(18), dp(11), dp(18), dp(17));
-        root.addView(hero);
-        TextView brand = text("沿途  /  YAN TU", 14, green, true); hero.addView(brand);
-        TextView headline = text("走到哪，讲到哪", 25, ink, true); headline.setPadding(0, dp(1), 0, dp(3)); hero.addView(headline);
+        LinearLayout intro = new LinearLayout(this); intro.setOrientation(LinearLayout.VERTICAL);
+        intro.setPadding(dp(22), dp(3), dp(22), dp(13)); root.addView(intro);
+        TextView brand = text("沿途", 18, green, true); intro.addView(brand);
+        TextView latin = text("YAN TU", 10, green, false);
+        latin.setLetterSpacing(.28f); latin.setPadding(dp(1), 0, 0, dp(10)); intro.addView(latin);
+        TextView headline = text("走到哪，讲到哪", 25, ink, true); headline.setPadding(0, 0, 0, dp(3)); intro.addView(headline);
         voiceStatusText = text("播讲时说“沿途”提问 · 史实附来源", 12, green, false);
-        hero.addView(voiceStatusText);
+        voiceStatusText.setPadding(dp(8), 0, 0, 0); intro.addView(voiceStatusText);
 
         LinearLayout location = new LinearLayout(this); location.setOrientation(LinearLayout.VERTICAL);
-        location.setPadding(0, dp(14), 0, 0);
+        location.setBackgroundColor(sage);
+        location.setPadding(dp(22), dp(15), dp(22), dp(17));
         TextView locTitle = text("到点讲解", 17, ink, true); location.addView(locTitle);
         statusText = text("定位尚未开启", 13, Color.rgb(97, 116, 106), false);
         statusText.setPadding(0, dp(4), 0, dp(8)); location.addView(statusText);
@@ -119,7 +133,10 @@ public final class MainActivity extends Activity {
         stop.setOnClickListener(v -> { stopService(new Intent(this, GuideService.class)); statusText.setText("到点讲解已停止"); });
         LinearLayout.LayoutParams stopSize = new LinearLayout.LayoutParams(dp(64), dp(46));
         stopSize.setMargins(dp(8), 0, 0, 0); locationActions.addView(stop, stopSize);
-        location.addView(locationActions); hero.addView(location);
+        location.addView(locationActions); root.addView(location);
+
+        LinearLayout body = new LinearLayout(this); body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(dp(18), 0, dp(18), dp(24)); root.addView(body);
 
         LinearLayout exploreActions = new LinearLayout(this);
         exploreActions.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -140,8 +157,8 @@ public final class MainActivity extends Activity {
             }
         }
         LinearLayout.LayoutParams exploreMargin = new LinearLayout.LayoutParams(-1, -2);
-        exploreMargin.setMargins(0, dp(15), 0, 0); root.addView(exploreActions, exploreMargin);
-        explorePanel = card(); explorePanel.setVisibility(View.GONE); root.addView(explorePanel);
+        exploreMargin.setMargins(0, dp(15), 0, 0); body.addView(exploreActions, exploreMargin);
+        explorePanel = card(); explorePanel.setVisibility(View.GONE); body.addView(explorePanel);
 
         LinearLayout section = new LinearLayout(this); section.setGravity(android.view.Gravity.CENTER_VERTICAL);
         section.setPadding(0, dp(15), 0, dp(3));
@@ -162,9 +179,9 @@ public final class MainActivity extends Activity {
                 if (speaking) { speechGeneration++; playNextChunk(); }
             });
         }
-        section.addView(speed); root.addView(section); updateRateButtons();
+        section.addView(speed); body.addView(section); updateRateButtons();
         LinearLayout spotList = card(); spotList.setPadding(dp(12), dp(2), dp(12), dp(4));
-        spotList.setBackground(round(Color.WHITE, 12)); root.addView(spotList);
+        spotList.setBackground(round(Color.WHITE, 12)); body.addView(spotList);
         for (Spots.Spot spot : Spots.ALL) {
             LinearLayout spotCard = new LinearLayout(this); spotCard.setOrientation(LinearLayout.VERTICAL);
             spotCard.setPadding(dp(2), dp(9), dp(2), dp(9)); spotCards.put(spot.id, spotCard);
@@ -487,6 +504,7 @@ public final class MainActivity extends Activity {
         if (!onDeviceAvailable && !SpeechRecognizer.isRecognitionAvailable(this)) {
             voiceStatusText.setText("手机缺少语音识别服务，暂无法语音打断 · 史实附来源"); return;
         }
+        if (!SpeechRecognizer.isRecognitionAvailable(this) && onDeviceAvailable) useOnDeviceRecognizer = true;
         if (recognizer != null) { recognizer.destroy(); recognizer = null; }
         handsFree = true;
         recognitionFailures = 0;
@@ -503,6 +521,7 @@ public final class MainActivity extends Activity {
         recognizer.setRecognitionListener(new RecognitionListener() {
             @Override public void onReadyForSpeech(Bundle params) {
                 if (recognizer != activeRecognizer) return;
+                voiceProblem = "";
                 voiceStatusText.setText(lastNonWake.isEmpty() ? "正在听“沿途” · 史实附来源"
                     : "正在听 · 上次听到“" + lastNonWake + "”");
             }
@@ -542,10 +561,12 @@ public final class MainActivity extends Activity {
                 if (!foreground || (!speaking && !waitingForQuestion)) return;
                 if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
                     handsFree = false;
-                    voiceStatusText.setText("麦克风权限已关闭，无法语音打断 · 史实附来源"); return;
+                    voiceProblem = "麦克风权限已关闭，无法语音打断";
+                    voiceStatusText.setText(voiceProblem + " · 史实附来源"); return;
                 }
                 if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
-                    if (++recognitionFailures >= 3) {
+                    recognitionFailures++;
+                    if (error == SpeechRecognizer.ERROR_CLIENT || recognitionFailures >= 3) {
                         if (!triedOnDeviceFallback && !useOnDeviceRecognizer && onDeviceAvailable) {
                             triedOnDeviceFallback = true;
                             useOnDeviceRecognizer = true;
@@ -554,7 +575,8 @@ public final class MainActivity extends Activity {
                             return;
                         }
                         handsFree = false;
-                        voiceStatusText.setText("手机语音识别不可用（错误 " + error + "） · 史实附来源");
+                        voiceProblem = (useOnDeviceRecognizer ? "设备端" : "系统") + "语音识别不可用（错误 " + error + "）";
+                        voiceStatusText.setText(voiceProblem + " · 史实附来源");
                         return;
                     }
                     voiceStatusText.setText("语音识别重试中（错误 " + error + "） · 史实附来源");
@@ -606,7 +628,8 @@ public final class MainActivity extends Activity {
                 handler.postDelayed(this::enableHandsFree, 450);
             } else {
                 handsFree = false;
-                voiceStatusText.setText("手机语音监听无法启动 · 史实附来源");
+                voiceProblem = "手机语音监听无法启动";
+                voiceStatusText.setText(voiceProblem + " · 史实附来源");
             }
         }
     }
@@ -621,11 +644,11 @@ public final class MainActivity extends Activity {
         if (speechButton == button && !speechChunks.isEmpty()) {
             if (speaking) {
                 speaking = false; speechGeneration++; activeSpeechId = null; tts.stop();
-                stopService(new Intent(this, NarrationNoticeService.class));
+                showNarrationNotice();
                 stopListening(); voiceStatusText.setText("播讲时说“沿途”提问 · 史实附来源");
                 updateSpeechButtons();
             }
-            else { speaking = true; playNextChunk(); showNarrationNotice(); updateSpeechButtons(); }
+            else { speaking = true; showNarrationNotice(); playNextChunk(); updateSpeechButtons(); }
         } else startNarration(content, button);
         if (speaking) ensureHandsFree();
     }
@@ -635,13 +658,14 @@ public final class MainActivity extends Activity {
         lastNonWake = "";
         for (String part : content.split("(?<=[。！？；])|\\n+")) if (!part.trim().isEmpty()) speechChunks.add(part.trim());
         if (speechChunks.isEmpty()) return;
-        speechButton = button; speaking = true; playNextChunk(); showNarrationNotice(); updateSpeechButtons();
+        speechButton = button; speaking = true; showNarrationNotice(); playNextChunk(); updateSpeechButtons();
     }
     private void playNextChunk() {
         if (!speaking || speechIndex >= speechChunks.size()) { stopNarration(); return; }
         activeSpeechId = "manual:" + speechGeneration + ":" + speechIndex;
         if (tts.speak(speechChunks.get(speechIndex), TextToSpeech.QUEUE_FLUSH, null, activeSpeechId) == TextToSpeech.ERROR)
             stopNarration();
+        else showNarrationNotice();
     }
     private void stopNarration() {
         speaking = false; speechGeneration++; speechIndex = 0;
@@ -650,17 +674,24 @@ public final class MainActivity extends Activity {
         if (tts != null) tts.stop();
         if (!waitingForQuestion) {
             stopListening();
-            if (voiceStatusText != null) voiceStatusText.setText("播讲时说“沿途”提问 · 史实附来源");
+            if (voiceStatusText != null) voiceStatusText.setText(
+                (voiceProblem.isEmpty() ? "播讲时说“沿途”提问" : voiceProblem) + " · 史实附来源");
         }
         updateSpeechButtons();
     }
     private void showNarrationNotice() {
+        String excerpt = speechIndex < speechChunks.size() ? speechChunks.get(speechIndex) : "";
+        if (excerpt.length() > 60) excerpt = excerpt.substring(0, 60) + "…";
         try { startForegroundService(new Intent(this, NarrationNoticeService.class)
-            .putExtra("title", current == null ? "沿途正在讲解" : "正在讲解 · " + current.name)); }
+            .putExtra("spot", current == null ? "沿途讲解" : current.name)
+            .putExtra("excerpt", excerpt)
+            .putExtra("playing", speaking)); }
         catch (RuntimeException e) { voiceStatusText.setText("通知栏无法启动 · 史实附来源"); }
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            !askedNoticePermission && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            askedNoticePermission = true;
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTICE_REQUEST);
+        }
     }
     private void updateSpeechButtons() {
         for (Spots.Spot spot : Spots.ALL) {
@@ -752,7 +783,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onResume() { super.onResume(); foreground = true; handler.post(refresh); scheduleListening(); }
     @Override protected void onPause() { foreground = false; handler.removeCallbacks(refresh); stopListening(); cancelExploreLocation(); super.onPause(); }
-    @Override protected void onDestroy() { cancelExploreLocation(); stopListening(); stopService(new Intent(this, NarrationNoticeService.class)); if (recognizer != null) recognizer.destroy(); if (tts != null) { tts.stop(); tts.shutdown(); } super.onDestroy(); }
+    @Override protected void onDestroy() { cancelExploreLocation(); stopListening(); stopService(new Intent(this, NarrationNoticeService.class)); if (noticeActivity.get() == this) noticeActivity.clear(); if (recognizer != null) recognizer.destroy(); if (tts != null) { tts.stop(); tts.shutdown(); } super.onDestroy(); }
 
     private int dp(int value) { return Math.round(getResources().getDisplayMetrics().density * value); }
     private GradientDrawable round(int color, int radius) {
