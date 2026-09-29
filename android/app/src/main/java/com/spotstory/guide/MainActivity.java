@@ -12,6 +12,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.location.Location;
 import android.location.LocationManager;
+import android.location.LocationListener;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -32,16 +33,17 @@ import java.util.Locale;
 import java.util.List;
 
 public final class MainActivity extends Activity {
-    private static final int LOCATION_REQUEST = 10, VOICE_REQUEST = 11, MIC_REQUEST = 12;
+    private static final int LOCATION_REQUEST = 10, VOICE_REQUEST = 11, MIC_REQUEST = 12, EXPLORE_LOCATION_REQUEST = 13;
+    private static final int EXPLORE_FOOD = 1, EXPLORE_FUN = 2, EXPLORE_NIGHT = 3, EXPLORE_SHOW = 4;
     private final int green = Color.rgb(18, 76, 68), ink = Color.rgb(23, 53, 47), cream = Color.rgb(245, 245, 237);
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable refresh = new Runnable() { @Override public void run() { updateStatus(); handler.postDelayed(this, 3000); } };
     private TextToSpeech tts;
     private boolean ttsReady;
     private ScrollView scroll;
-    private LinearLayout root, detail, artifacts, foodPanel;
+    private LinearLayout root, detail, artifacts, explorePanel;
     private TextView statusText, introText, storyText, lookForText, answerText;
-    private Button speakButton, briefButton, foodToggle;
+    private Button speakButton;
     private final Button[] rateButtons = new Button[3];
     private final java.util.Map<String, LinearLayout> spotCards = new java.util.HashMap<>();
     private final java.util.Map<String, TextView> spotHeaders = new java.util.HashMap<>();
@@ -53,7 +55,10 @@ public final class MainActivity extends Activity {
     private String activeSpeechId;
     private boolean speaking;
     private Button speechButton;
-    private float foodTouchY;
+    private int pendingExploreAction;
+    private final List<android.location.LocationListener> exploreListeners = new ArrayList<>();
+    private Runnable exploreTimeout;
+    private int exploreRequestToken;
     private SpeechRecognizer recognizer;
     private boolean handsFree, listening, waitingForQuestion, foreground;
     private final Runnable restartListening = this::listenAgain;
@@ -94,16 +99,36 @@ public final class MainActivity extends Activity {
         root.addView(text("到点自动讲解，也能手动选景点。史实附来源。", 14, ink, false));
 
         LinearLayout location = card(); location.setBackground(round(green, 18));
-        TextView locTitle = text("到点讲解", 20, Color.WHITE, true); location.addView(locTitle);
+        location.setPadding(dp(16), dp(14), dp(16), dp(14));
+        TextView locTitle = text("到点讲解", 18, Color.WHITE, true); location.addView(locTitle);
         statusText = text("定位尚未开启", 13, Color.rgb(218, 237, 227), false);
-        statusText.setPadding(0, dp(8), 0, dp(12)); location.addView(statusText);
-        Button start = button("开启到点播讲", Color.rgb(236, 200, 141), ink);
-        start.setOnClickListener(v -> enableLocation()); location.addView(start);
-        Button stop = button("停止到点播讲", green, Color.WHITE);
+        statusText.setPadding(0, dp(4), 0, dp(2)); location.addView(statusText);
+        LinearLayout locationActions = new LinearLayout(this);
+        Button start = button("开启到点讲解", Color.rgb(236, 200, 141), ink);
+        start.setOnClickListener(v -> enableLocation());
+        locationActions.addView(start, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        Button stop = button("停止", green, Color.WHITE);
         stop.setOnClickListener(v -> { stopService(new Intent(this, GuideService.class)); statusText.setText("到点讲解已停止"); });
-        location.addView(stop); root.addView(location);
+        LinearLayout.LayoutParams stopSize = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        stopSize.setMargins(dp(6), 0, 0, 0); locationActions.addView(stop, stopSize);
+        location.addView(locationActions); root.addView(location);
 
-        TextView section = text("选择眼前的地方", 22, ink, true); section.setPadding(0, dp(25), 0, dp(8)); root.addView(section);
+        LinearLayout exploreActions = new LinearLayout(this);
+        String[] labels = {"吃什么", "玩什么", "找夜景", "找演出"};
+        for (int i = 0; i < labels.length; i++) {
+            final int action = i + 1;
+            Button option = button(labels[i], Color.WHITE, green);
+            option.setTextSize(14); option.setPadding(0, 0, 0, 0);
+            LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(0, dp(48), 1f);
+            size.setMargins(i == 0 ? 0 : dp(5), 0, 0, 0);
+            exploreActions.addView(option, size);
+            option.setOnClickListener(v -> explore(action));
+        }
+        LinearLayout.LayoutParams exploreMargin = new LinearLayout.LayoutParams(-1, -2);
+        exploreMargin.setMargins(0, dp(16), 0, 0); root.addView(exploreActions, exploreMargin);
+        explorePanel = card(); explorePanel.setVisibility(View.GONE); root.addView(explorePanel);
+
+        TextView section = text("选择眼前的地方", 22, ink, true); section.setPadding(0, dp(20), 0, dp(8)); root.addView(section);
         for (Spots.Spot spot : Spots.ALL) {
             LinearLayout spotCard = card(); spotCards.put(spot.id, spotCard);
             LinearLayout header = new LinearLayout(this); header.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -146,28 +171,6 @@ public final class MainActivity extends Activity {
         artifacts = new LinearLayout(this); artifacts.setOrientation(LinearLayout.VERTICAL); detail.addView(artifacts);
         speakButton = button("▶ 听完整故事", green, Color.WHITE);
         speakButton.setOnClickListener(v -> toggleNarration(speakButton, current == null ? "" : current.story)); detail.addView(speakButton);
-        briefButton = button("▶ 听简短介绍", Color.WHITE, green);
-        briefButton.setOnClickListener(v -> toggleNarration(briefButton, current == null ? "" : current.intro)); detail.addView(briefButton);
-        Button nearby = button("附近有什么", Color.WHITE, green);
-        nearby.setOnClickListener(v -> { String result = nearbyText(); answerText.setText(result); say(result); }); detail.addView(nearby);
-        foodToggle = button("⌄ 周边吃什么", Color.WHITE, green);
-        foodToggle.setOnClickListener(v -> setFoodExpanded(foodPanel.getVisibility() != View.VISIBLE));
-        foodToggle.setOnTouchListener((v, event) -> {
-            if (event.getAction() == MotionEvent.ACTION_DOWN) { foodTouchY = event.getY(); return true; }
-            if (event.getAction() == MotionEvent.ACTION_UP) {
-                float dy = event.getY() - foodTouchY;
-                if (Math.abs(dy) > dp(36)) setFoodExpanded(dy > 0);
-                else v.performClick();
-                return true;
-            }
-            return true;
-        }); detail.addView(foodToggle);
-        foodPanel = new LinearLayout(this); foodPanel.setOrientation(LinearLayout.VERTICAL);
-        foodPanel.setVisibility(View.GONE); detail.addView(foodPanel);
-        Button fun = button("附近找夜景", Color.WHITE, green);
-        fun.setOnClickListener(v -> searchMap("夜景")); detail.addView(fun);
-        Button show = button("附近找演出", Color.WHITE, green);
-        show.setOnClickListener(v -> searchMap("演出")); detail.addView(show);
         detail.addView(text("语速", 14, green, true));
         LinearLayout rates = new LinearLayout(this); rates.setGravity(android.view.Gravity.CENTER_VERTICAL);
         for (int i = 0; i < rateButtons.length; i++) {
@@ -203,7 +206,6 @@ public final class MainActivity extends Activity {
         spotCards.get(spot.id).addView(detail); detail.setVisibility(View.VISIBLE);
         spotHeaders.get(spot.id).setText(spot.name + "  ⌃\n" + spot.area);
         current = spot; introText.setText(spot.intro); storyText.setText(spot.story);
-        foodPanel.setVisibility(View.GONE); foodToggle.setText("⌄ 周边吃什么");
         lookForText.setText(spot.lookFor.isEmpty() ? "现场细节尚未核实，请看标识。" : spot.lookFor);
         answerText.setText(""); artifacts.removeAllViews();
         if (!spot.artifacts.isEmpty()) {
@@ -232,55 +234,122 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void setFoodExpanded(boolean open) {
-        foodPanel.setVisibility(open ? View.VISIBLE : View.GONE);
-        foodToggle.setText(open ? "⌃ 收起餐厅" : "⌄ 周边吃什么");
-        if (open) renderFood();
-    }
-
-    private void renderFood() {
-        foodPanel.removeAllViews();
-        if (current == null) return;
-        if (current.radius > 0) {
-            double[] point = foodOrigin();
-            List<Restaurants.Restaurant> nearby = Restaurants.near(point[0], point[1]);
-            foodPanel.addView(text("按预计步行距离从近到远 · 以高德路线为准", 13, green, false));
-            if (nearby.isEmpty()) foodPanel.addView(text("这处周边暂未收录餐厅，可在美团继续找。", 14, ink, false));
-            for (Restaurants.Restaurant item : nearby) {
-                LinearLayout row = new LinearLayout(this); row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-                row.setPadding(0, dp(11), 0, dp(11));
-                long meters = Math.round(Geo.distance(point[0], point[1], item.lat, item.lng) * 1.3 / 50) * 50;
-                TextView info = text(item.name + "\n" + item.kind + " · 预计步行约" + meters + "米", 14, ink, false);
-                info.setLineSpacing(dp(3), 1f);
-                row.addView(info, new LinearLayout.LayoutParams(0, -2, 1f));
-                Button map = button("⌖", Color.rgb(239, 246, 238), green);
-                map.setContentDescription("美团查找" + item.name);
-                map.setOnClickListener(v -> openMeituan(item.name));
-                LinearLayout.LayoutParams iconSize = new LinearLayout.LayoutParams(dp(52), dp(52));
-                iconSize.setMargins(dp(8), 0, 0, 0); row.addView(map, iconSize);
-                foodPanel.addView(row);
-            }
-        } else foodPanel.addView(text("请选一个室外景点查看其周边餐厅。", 14, ink, false));
-        Button more = button("美团查看更多餐厅 ↗", Color.rgb(239, 246, 238), green);
-        more.setOnClickListener(v -> openMeituan("长沙 不辣 美食")); foodPanel.addView(more);
-        foodPanel.addView(text("步行距离按直线距离估算；口味和营业请在美团核对，点单说明不吃辣。", 12, green, false));
-    }
-
-    private double[] foodOrigin() {
-        double[] spot = current.gcj ? new double[]{current.lat, current.lng} : Geo.wgsToGcj(current.lat, current.lng);
+    private void explore(int action) {
+        pendingExploreAction = action;
+        explorePanel.removeAllViews(); explorePanel.setVisibility(View.VISIBLE);
+        explorePanel.addView(text("正在获取当前位置…", 14, ink, false));
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
-            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) return spot;
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, EXPLORE_LOCATION_REQUEST);
+            return;
+        }
+        requestExploreLocation(action);
+    }
+
+    private void cancelExploreLocation() {
+        exploreRequestToken++;
+        if (exploreTimeout != null) handler.removeCallbacks(exploreTimeout);
+        exploreTimeout = null;
         LocationManager manager = (LocationManager) getSystemService(LOCATION_SERVICE);
-        Location best = null;
+        for (LocationListener listener : exploreListeners) manager.removeUpdates(listener);
+        exploreListeners.clear();
+    }
+
+    private void requestExploreLocation(int action) {
+        cancelExploreLocation();
+        final int token = exploreRequestToken;
+        LocationManager manager = (LocationManager) getSystemService(LOCATION_SERVICE);
         for (String provider : new String[]{LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER}) {
+            if (!manager.isProviderEnabled(provider)) continue;
+            LocationListener listener = new LocationListener() {
+                @Override public void onLocationChanged(Location location) {
+                    if (token != exploreRequestToken || location == null || !location.hasAccuracy() ||
+                        location.getAccuracy() > 150 || Math.abs(System.currentTimeMillis() - location.getTime()) > 20000) return;
+                    double[] point = Geo.wgsToGcj(location.getLatitude(), location.getLongitude());
+                    cancelExploreLocation();
+                    showExploreAt(action, point);
+                }
+                @Override public void onStatusChanged(String name, int status, Bundle extras) { }
+                @Override public void onProviderEnabled(String name) { }
+                @Override public void onProviderDisabled(String name) { }
+            };
             try {
-                Location value = manager.getLastKnownLocation(provider);
-                if (value != null && (best == null || value.getTime() > best.getTime())) best = value;
+                manager.requestLocationUpdates(provider, 0, 0, listener, Looper.getMainLooper());
+                exploreListeners.add(listener);
             } catch (SecurityException | IllegalArgumentException ignored) { }
         }
-        if (best == null || System.currentTimeMillis() - best.getTime() > 120000 ||
-            !best.hasAccuracy() || best.getAccuracy() > 100) return spot;
-        return Geo.wgsToGcj(best.getLatitude(), best.getLongitude());
+        if (exploreListeners.isEmpty()) { showExploreError("请开启手机定位后再试。"); return; }
+        exploreTimeout = () -> {
+            if (token != exploreRequestToken) return;
+            cancelExploreLocation(); showExploreError("暂时无法获取准确的实时位置，请到开阔处重试。");
+        };
+        handler.postDelayed(exploreTimeout, 15000);
+    }
+
+    private void showExploreError(String message) {
+        explorePanel.removeAllViews(); explorePanel.setVisibility(View.VISIBLE);
+        explorePanel.addView(text(message, 14, ink, false));
+    }
+
+    private void showExploreAt(int action, double[] point) {
+        if (action == EXPLORE_NIGHT || action == EXPLORE_SHOW) {
+            explorePanel.setVisibility(View.GONE);
+            searchAroundAt(action == EXPLORE_NIGHT ? "夜景" : "演出", point);
+            return;
+        }
+        explorePanel.removeAllViews(); explorePanel.setVisibility(View.VISIBLE);
+        Button close = button("⌃ 收起", Color.rgb(239, 246, 238), green);
+        close.setOnClickListener(v -> explorePanel.setVisibility(View.GONE)); explorePanel.addView(close);
+        explorePanel.addView(text("按当前位置排序 · 步行距离为估算", 13, green, false));
+        if (action == EXPLORE_FOOD) renderFoodAt(point);
+        else renderFunAt(point);
+    }
+
+    private void renderFoodAt(double[] point) {
+        List<Restaurants.Restaurant> nearby = Restaurants.near(point[0], point[1]);
+        if (nearby.isEmpty()) explorePanel.addView(text("当前位置附近暂未收录餐厅，可在美团继续找。", 14, ink, false));
+        for (Restaurants.Restaurant item : nearby) {
+            LinearLayout row = new LinearLayout(this); row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(0, dp(11), 0, dp(11));
+            long meters = Math.round(Geo.distance(point[0], point[1], item.lat, item.lng) * 1.3 / 50) * 50;
+            TextView info = text(item.name + "\n" + item.kind + " · 预计步行约" + meters + "米", 14, ink, false);
+            info.setLineSpacing(dp(3), 1f); row.addView(info, new LinearLayout.LayoutParams(0, -2, 1f));
+            Button map = button("⌖", Color.rgb(239, 246, 238), green);
+            map.setContentDescription("美团查找" + item.name);
+            map.setOnClickListener(v -> openMeituan(item.name));
+            LinearLayout.LayoutParams iconSize = new LinearLayout.LayoutParams(dp(52), dp(52));
+            iconSize.setMargins(dp(8), 0, 0, 0); row.addView(map, iconSize);
+            explorePanel.addView(row);
+        }
+        Button more = button("美团查看更多餐厅 ↗", Color.rgb(239, 246, 238), green);
+        more.setOnClickListener(v -> openMeituan("不辣 美食")); explorePanel.addView(more);
+        explorePanel.addView(text("步行距离按直线距离估算；口味和营业请在美团核对，点单说明不吃辣。", 12, green, false));
+    }
+
+    private void renderFunAt(double[] point) {
+        List<Spots.Spot> nearby = new ArrayList<>();
+        for (Spots.Spot spot : Spots.ALL) if (spot.radius > 0 &&
+            Geo.distance(point[0], point[1], spot.gcj ? spot.lat : Geo.wgsToGcj(spot.lat, spot.lng)[0],
+                spot.gcj ? spot.lng : Geo.wgsToGcj(spot.lat, spot.lng)[1]) <= 3500) nearby.add(spot);
+        nearby.sort((a, b) -> Double.compare(exploreDistance(a, point), exploreDistance(b, point)));
+        if (nearby.isEmpty()) explorePanel.addView(text("当前位置附近暂未收录讲解点，可在高德继续找。", 14, ink, false));
+        for (Spots.Spot spot : nearby) {
+            LinearLayout row = new LinearLayout(this); row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            long meters = Math.round(exploreDistance(spot, point) * 1.3 / 50) * 50;
+            TextView info = text(spot.name + "\n" + spot.area + " · 预计步行约" + meters + "米", 14, ink, false);
+            row.addView(info, new LinearLayout.LayoutParams(0, -2, 1f));
+            Button route = button("高德 ↗", Color.rgb(239, 246, 238), green);
+            route.setOnClickListener(v -> navigateTo(spot));
+            row.addView(route, new LinearLayout.LayoutParams(dp(84), dp(48)));
+            explorePanel.addView(row);
+        }
+        Button more = button("高德找更多玩法 ↗", Color.rgb(239, 246, 238), green);
+        more.setOnClickListener(v -> searchAroundAt("景点", point)); explorePanel.addView(more);
+    }
+
+    private double exploreDistance(Spots.Spot spot, double[] point) {
+        double[] target = spot.gcj ? new double[]{spot.lat, spot.lng} : Geo.wgsToGcj(spot.lat, spot.lng);
+        return Geo.distance(point[0], point[1], target[0], target[1]);
     }
 
     private void openMeituan(String keyword) {
@@ -307,6 +376,11 @@ public final class MainActivity extends Activity {
             boolean granted = false;
             for (int value : results) if (value == PackageManager.PERMISSION_GRANTED) granted = true;
             if (granted) startGuide(); else statusText.setText("未获得定位权限，可手动选景点");
+        } else if (requestCode == EXPLORE_LOCATION_REQUEST) {
+            boolean granted = false;
+            for (int value : results) if (value == PackageManager.PERMISSION_GRANTED) granted = true;
+            if (granted) explore(pendingExploreAction);
+            else showExploreError("请授权定位后再查当前位置周边。");
         } else if (requestCode == MIC_REQUEST) {
             if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) enableHandsFree();
             else answerText.setText("未获麦克风权限；文字和播放仍可用。可在系统设置中开启权限。");
@@ -340,14 +414,15 @@ public final class MainActivity extends Activity {
                     }
                 }
                 if (question.contains("吃") || question.contains("饭店") || question.contains("餐馆") || question.contains("美食")) {
-                    setFoodExpanded(true);
-                    answerText.setText("已列出附近餐厅；点 ⌖ 在美团查找店铺。"); return;
+                    explore(EXPLORE_FOOD);
+                    answerText.setText("正在定位，附近餐厅会显示在上方。"); return;
+                }
+                if (question.contains("玩什么") || question.contains("哪里好玩")) {
+                    explore(EXPLORE_FUN); answerText.setText("正在定位，附近玩法会显示在上方。"); return;
                 }
                 if (question.contains("夜景") || question.contains("演出") || question.contains("花鼓戏")) {
-                    String keyword = question.contains("演出") || question.contains("花鼓戏") ? "演出"
-                        : "夜景";
-                    answerText.setText("已打开高德搜索“" + keyword + "”；请核对当天营业或演出信息。");
-                    searchMap(keyword); return;
+                    explore(question.contains("演出") || question.contains("花鼓戏") ? EXPLORE_SHOW : EXPLORE_NIGHT);
+                    answerText.setText("正在定位，随后会打开高德搜索；请核对当天信息。"); return;
                 }
                 String answer = question.contains("附近") || question.contains("周围") || question.contains("前面有什么")
                     ? nearbyText() : Spots.answer(current, question);
@@ -461,7 +536,6 @@ public final class MainActivity extends Activity {
     }
     private void updateSpeechButtons() {
         if (speakButton != null) speakButton.setText((speaking && speechButton == speakButton ? "Ⅱ" : "▶") + " 听完整故事");
-        if (briefButton != null) briefButton.setText((speaking && speechButton == briefButton ? "Ⅱ" : "▶") + " 听简短介绍");
     }
     private void chooseVoice() {
         if (!ttsReady) { answerText.setText("系统中文语音尚未就绪"); return; }
@@ -497,10 +571,13 @@ public final class MainActivity extends Activity {
             android.widget.Toast.makeText(this, "无法打开高德地图，请检查安装", android.widget.Toast.LENGTH_LONG).show();
         }
     }
-    private void searchMap(String query) {
-        Uri url = Uri.parse("androidamap://poi").buildUpon()
+    private void searchAroundAt(String query, double[] point) {
+        Uri url = Uri.parse("androidamap://arroundpoi").buildUpon()
             .appendQueryParameter("sourceApplication", "沿途")
-            .appendQueryParameter("keywords", "长沙 " + query).appendQueryParameter("dev", "0").build();
+            .appendQueryParameter("keywords", query)
+            .appendQueryParameter("lat", String.valueOf(point[0]))
+            .appendQueryParameter("lon", String.valueOf(point[1]))
+            .appendQueryParameter("dev", "0").build();
         Intent intent = new Intent(Intent.ACTION_VIEW, url); intent.setPackage("com.autonavi.minimap");
         try { startActivity(intent); }
         catch (ActivityNotFoundException | SecurityException e) {
@@ -555,8 +632,8 @@ public final class MainActivity extends Activity {
         }
     }
     @Override protected void onResume() { super.onResume(); foreground = true; handler.post(refresh); scheduleListening(); }
-    @Override protected void onPause() { foreground = false; handler.removeCallbacks(refresh); stopListening(); super.onPause(); }
-    @Override protected void onDestroy() { stopListening(); if (recognizer != null) recognizer.destroy(); if (tts != null) { tts.stop(); tts.shutdown(); } super.onDestroy(); }
+    @Override protected void onPause() { foreground = false; handler.removeCallbacks(refresh); stopListening(); cancelExploreLocation(); super.onPause(); }
+    @Override protected void onDestroy() { cancelExploreLocation(); stopListening(); if (recognizer != null) recognizer.destroy(); if (tts != null) { tts.stop(); tts.shutdown(); } super.onDestroy(); }
 
     private int dp(int value) { return Math.round(getResources().getDisplayMetrics().density * value); }
     private GradientDrawable round(int color, int radius) {

@@ -9,7 +9,6 @@ const state = { places: [], current: null, artifact: null, watchId: null, positi
 let playback = { owner: null, utterance: null, paused: false };
 function updatePlayback() {
   $('listen').textContent = `${playback.owner === 'listen' && !playback.paused ? 'Ⅱ' : '▶'} 听完整故事`;
-  $('brief').textContent = `${playback.owner === 'brief' && !playback.paused ? 'Ⅱ' : '▶'} 听简短介绍`;
 }
 function stopPlayback() {
   if ('speechSynthesis' in window) speechSynthesis.cancel();
@@ -96,10 +95,8 @@ function selectPlace(place, auto = false) {
   $('detail-name').textContent = place.name; $('detail-intro').textContent = place.intro;
   $('detail-story').textContent = place.story ?? place.intro;
   $('detail-look').textContent = place.lookFor || '现场细节尚未核实，请看标识。';
-  $('nearby-list').replaceChildren();
   $('answer').classList.add('hidden'); $('question').value = ''; $('photo').value = ''; $('photo-name').textContent = '';
   showSources(place); renderArtifacts(); renderPlaces();
-  $('food-panel').open = false;
   $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
   if (auto) speak(place.story ?? place.intro);
 }
@@ -109,23 +106,61 @@ function openMeituan(keyword) {
   const timer = setTimeout(() => { if (!document.hidden) window.open('https://i.meituan.com/', '_blank', 'noopener'); }, 1600);
   document.addEventListener('visibilitychange', () => { if (document.hidden) clearTimeout(timer); }, { once: true });
 }
-function renderFood() {
-  const box = $('food-list'); box.replaceChildren();
-  const point = state.position ?? (state.current?.gcj ?? (state.current?.wgs && wgsToGcj(state.current.wgs)));
-  if (!point) { box.textContent = '请先选一处室外景点。'; return; }
-  const near = restaurants.map(item => ({ ...item, meters: distanceM(point, item.gcj) }))
-    .filter(item => item.meters <= 3500).sort((a, b) => a.meters - b.meters);
-  if (!near.length) { box.textContent = '这处周边暂未收录餐厅，可在美团继续找。'; return; }
-  const note = document.createElement('p'); note.className = 'hint'; note.textContent = `按预计步行距离从近到远 · ${state.position ? '手机定位' : '所选景点'}为起点`;
-  box.append(note);
-  for (const item of near) {
+function explorePanel(message) {
+  const box = $('explore-panel'); box.classList.remove('hidden'); box.replaceChildren();
+  if (message) box.textContent = message;
+  return box;
+}
+function currentPosition() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) { reject(new Error('当前浏览器不支持定位。')); return; }
+    navigator.geolocation.getCurrentPosition(position => {
+      if (position.coords.accuracy > 150 || Math.abs(Date.now() - position.timestamp) > 20000) {
+        reject(new Error('定位精度不足，请到开阔处重试。')); return;
+      }
+      resolve(wgsToGcj({ lat: position.coords.latitude, lng: position.coords.longitude }));
+    }, () => reject(new Error('无法获取当前位置，请授权定位后重试。')),
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+  });
+}
+function renderExploreRows(items, point, food) {
+  const box = explorePanel();
+  const close = document.createElement('button'); close.className = 'outline'; close.textContent = '⌃ 收起';
+  close.onclick = () => box.classList.add('hidden'); box.append(close);
+  const note = document.createElement('p'); note.className = 'hint'; note.textContent = '按当前位置排序 · 步行距离为估算'; box.append(note);
+  if (!items.length) {
+    const empty = document.createElement('p'); empty.textContent = `当前位置附近暂未收录${food ? '餐厅' : '讲解点'}。`; box.append(empty);
+  }
+  for (const item of items) {
     const row = document.createElement('div'); row.className = 'food-row';
     const info = document.createElement('div'); const title = document.createElement('strong'); title.textContent = item.name;
-    const detail = document.createElement('small'); detail.textContent = `${item.kind} · 预计步行约 ${Math.round(item.meters * 1.3 / 50) * 50} 米`;
-    info.append(title, detail); const action = document.createElement('button'); action.type = 'button'; action.textContent = '⌖';
-    action.setAttribute('aria-label', `美团查找${item.name}`); action.onclick = () => openMeituan(item.name);
-    row.append(info, action); box.append(row);
+    const detail = document.createElement('small'); detail.textContent = `${food ? item.kind : item.area} · 预计步行约 ${Math.round(item.meters * 1.3 / 50) * 50} 米`;
+    info.append(title, detail);
+    const action = document.createElement('button'); action.type = 'button'; action.textContent = food ? '⌖' : '高德 ↗';
+    action.setAttribute('aria-label', food ? `美团查找${item.name}` : `高德步行去${item.name}`);
+    action.onclick = () => food ? openMeituan(item.name) : routeTo(item); row.append(info, action); box.append(row);
   }
+  const more = document.createElement('button'); more.className = 'outline';
+  more.textContent = food ? '美团查看更多餐厅 ↗' : '高德找更多玩法 ↗';
+  more.onclick = () => food ? openMeituan('不辣 美食') : mapSearch('景点', point); box.append(more);
+  if (food) { const hint = document.createElement('p'); hint.className = 'hint'; hint.textContent = '距离按直线估算；营业和口味请在美团核对，点单说明不吃辣。'; box.append(hint); }
+}
+async function explore(action) {
+  explorePanel('正在获取当前位置…');
+  try {
+    const point = await currentPosition();
+    if (action === 'night' || action === 'show') {
+      $('explore-panel').classList.add('hidden'); mapSearch(action === 'night' ? '夜景' : '演出', point); return;
+    }
+    if (action === 'food') {
+      const items = restaurants.map(item => ({ ...item, meters: distanceM(point, item.gcj) }))
+        .filter(item => item.meters <= 3500).sort((a, b) => a.meters - b.meters);
+      renderExploreRows(items, point, true); return;
+    }
+    const items = state.places.filter(item => item.kind === 'outdoor').map(item => ({ ...item, meters: distanceM(point, item.gcj ?? wgsToGcj(item.wgs)) }))
+      .filter(item => item.meters <= 3500).sort((a, b) => a.meters - b.meters);
+    renderExploreRows(items, point, false);
+  } catch (error) { explorePanel(error.message); }
 }
 function routeTo(place) {
   if (!place || place.kind !== 'outdoor') return;
@@ -138,31 +173,13 @@ function routeTo(place) {
   const query = new URLSearchParams({ from: '', to: `${point.lng},${point.lat},${place.name}`, mode: 'walk', callnative: '1', src: 'yantu' });
   window.open(`https://uri.amap.com/navigation?${query}`, '_blank', 'noopener');
 }
-function mapSearch(keyword) {
-  const query = new URLSearchParams({ keyword, city: '长沙', view: 'list', callnative: '1', src: 'yantu' });
-  const point = state.current?.gcj ?? (state.current?.wgs && wgsToGcj(state.current.wgs));
-  if (point) query.set('center', `${point.lng},${point.lat}`);
+function mapSearch(keyword, point) {
+  if (/Android/i.test(navigator.userAgent)) {
+    const params = new URLSearchParams({ sourceApplication: '沿途', keywords: keyword, lat: String(point.lat), lon: String(point.lng), dev: '0' });
+    window.location.href = `androidamap://arroundpoi?${params}`; return;
+  }
+  const query = new URLSearchParams({ keyword, center: `${point.lng},${point.lat}`, view: 'list', callnative: '1', src: 'yantu' });
   window.open(`https://uri.amap.com/search?${query}`, '_blank', 'noopener');
-}
-function showNearby() {
-  const box = $('nearby-list'); box.textContent = '正在确认附近位置…';
-  if (!navigator.geolocation) { box.textContent = '当前浏览器不支持定位。'; return; }
-  navigator.geolocation.getCurrentPosition(position => {
-    if (position.coords.accuracy > 100) { box.textContent = `定位误差约 ${Math.round(position.coords.accuracy)} 米，暂不判断附近。`; return; }
-    const wgs = { lat: position.coords.latitude, lng: position.coords.longitude };
-    const gcj = wgsToGcj(wgs);
-    state.position = gcj; if ($('food-panel').open) renderFood();
-    const matches = state.places.filter(p => p.kind === 'outdoor').map(place => ({
-      place, meters: distanceM(place.gcj ? gcj : wgs, place.gcj ?? place.wgs)
-    })).filter(item => item.meters <= 2000).sort((a, b) => a.meters - b.meters).slice(0, 4);
-    box.replaceChildren();
-    if (!matches.length) { box.textContent = '附近两公里内暂无收录的长沙讲解点。'; return; }
-    for (const item of matches) {
-      const button = document.createElement('button'); button.className = 'artifact';
-      button.textContent = `${item.place.name} · 直线约 ${Math.round(item.meters)} 米`;
-      button.onclick = () => selectPlace(item.place); box.append(button);
-    }
-  }, () => { box.textContent = '定位不可用，请先允许定位或手动选景点。'; }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
 }
 function startLocation() {
   if (state.watchId !== null) { navigator.geolocation.clearWatch(state.watchId); state.watchId = null; $('locate').textContent = '开启到点讲解'; $('location-status').textContent = '已暂停定位'; return; }
@@ -170,7 +187,7 @@ function startLocation() {
   $('location-status').textContent = '正在获取位置…';
   state.watchId = navigator.geolocation.watchPosition(position => {
     const { latitude: lat, longitude: lng, accuracy } = position.coords;
-    if (accuracy <= 100) { state.position = wgsToGcj({ lat, lng }); if ($('food-panel').open) renderFood(); }
+    if (accuracy <= 100) { state.position = wgsToGcj({ lat, lng }); }
     if (accuracy > 80) { $('location-status').textContent = `定位误差约 ${Math.round(accuracy)} 米，请手动选点`; return; }
     const match = nearestPlace({ lat, lng, accuracy }, state.places);
     $('location-status').textContent = match ? `附近：${match.place.name}（约 ${Math.round(match.meters)} 米）` : '已定位，附近暂无收录的室外讲解点';
@@ -181,18 +198,7 @@ function startLocation() {
 
 $('locate').onclick = startLocation;
 $('listen').onclick = () => togglePlayback('listen', state.artifact?.intro ?? state.current.story ?? state.current.intro);
-$('brief').onclick = () => togglePlayback('brief', state.artifact?.intro ?? state.current.intro);
-$('nearby').onclick = showNearby;
-$('food-panel').ontoggle = () => {
-  if (!$('food-panel').open) return;
-  renderFood();
-  if (navigator.geolocation) navigator.geolocation.getCurrentPosition(position => {
-    if (position.coords.accuracy <= 100) { state.position = wgsToGcj({ lat: position.coords.latitude, lng: position.coords.longitude }); renderFood(); }
-  }, () => {}, { enableHighAccuracy: true, maximumAge: 10000, timeout: 8000 });
-};
-$('food-more').onclick = () => openMeituan('长沙 不辣 美食');
-$('fun-search').onclick = () => mapSearch('夜景');
-$('show-search').onclick = () => mapSearch('演出');
+for (const option of document.querySelectorAll('[data-explore]')) option.onclick = () => explore(option.dataset.explore);
 function updateRates() {
   const saved = localStorage.getItem('tour-guide-rate') || '1.0';
   for (const option of $('speech-rate').querySelectorAll('button')) option.setAttribute('aria-pressed', String(option.dataset.rate === saved));
@@ -226,10 +232,10 @@ $('ask-form').onsubmit = async event => {
   if (!state.aiEnabled) {
     const reply = answerOffline(question, state.current, state.places);
     $('answer').textContent = reply.text; $('answer').classList.remove('hidden');
-    if (reply.action === 'nearby') showNearby();
-    if (reply.action === 'food') $('food-panel').open = true;
+    if (reply.action === 'nearby' || reply.action === 'fun') explore('fun');
+    if (reply.action === 'food') explore('food');
     if (reply.action === 'route') routeTo(reply.destination);
-    if (reply.action === 'search') mapSearch(reply.keyword);
+    if (reply.action === 'search') explore(reply.keyword === '夜景' ? 'night' : 'show');
     return;
   }
   const file = $('photo').files[0];

@@ -20,6 +20,8 @@
       <div class="hero-actions"><button id="locate" class="primary">开启到点讲解</button><span id="location-status" role="status">定位尚未开启</span></div>
     </section>
 
+    <nav class="explore-actions" aria-label="按当前位置探索"><button type="button" data-explore="food">吃什么</button><button type="button" data-explore="fun">玩什么</button><button type="button" data-explore="night">找夜景</button><button type="button" data-explore="show">找演出</button></nav>
+    <section id="explore-panel" class="explore-panel hidden" role="status"></section>
     <section class="section-heading"><div><small>01 / 走近</small><h2>选择眼前的地方</h2></div></section>
     <div id="places" class="place-list" aria-live="polite"></div>
 
@@ -28,11 +30,7 @@
       <p id="detail-intro" class="intro"></p>
       <h3>到现场看哪里</h3><p id="detail-look" class="intro"></p>
       <h3>再听一段 · 历史与典故</h3><p id="detail-story" class="intro"></p>
-      <div class="button-row"><button id="listen" class="secondary">▶ 听完整故事</button><button id="brief" class="outline">▶ 听简短介绍</button></div>
-      <div class="button-row navigation-actions"><button id="nearby" class="outline">附近有什么</button></div>
-      <div id="nearby-list" class="nearby-list" role="status"></div>
-      <details id="food-panel" class="food-panel"><summary>⌄ 周边吃什么</summary><div id="food-list"></div><button id="food-more" class="outline" type="button">美团查看更多餐厅 ↗</button><p class="hint">步行距离按直线距离估算；实际路线、营业和口味请在应用里核对，点单说明不吃辣。</p></details>
-      <div class="button-row navigation-actions"><button id="fun-search" class="outline">找夜景</button><button id="show-search" class="outline">找演出</button></div>
+      <div class="button-row"><button id="listen" class="secondary">▶ 听完整故事</button></div>
       <p class="hint">路线由高德地图规划。这里的距离是直线距离；岔路转向以地图和现场标识为准。</p>
       <div class="voice-controls"><span>语速</span><div id="speech-rate" class="rate-options" role="group" aria-label="语速"><button type="button" data-rate="0.78">舒缓</button><button type="button" data-rate="1.0">自然</button><button type="button" data-rate="1.25">明快</button></div><label for="speech-voice">中文音色</label><select id="speech-voice"><option value="">系统默认</option></select></div>
       <p class="hint">音色来自当前手机或浏览器的语音引擎，实际效果因设备而异。</p>
