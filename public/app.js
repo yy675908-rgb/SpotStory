@@ -130,6 +130,11 @@ function renderFood() {
 function routeTo(place) {
   if (!place || place.kind !== 'outdoor') return;
   const point = place.gcj ?? wgsToGcj(place.wgs);
+  if (/Android/i.test(navigator.userAgent)) {
+    const appQuery = new URLSearchParams({ sourceApplication: '沿途', dlat: String(point.lat), dlon: String(point.lng), dname: place.name, dev: '0', t: '2' });
+    window.location.href = `amapuri://route/plan/?${appQuery}`;
+    return;
+  }
   const query = new URLSearchParams({ from: '', to: `${point.lng},${point.lat},${place.name}`, mode: 'walk', callnative: '1', src: 'yantu' });
   window.open(`https://uri.amap.com/navigation?${query}`, '_blank', 'noopener');
 }
