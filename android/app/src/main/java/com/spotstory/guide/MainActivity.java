@@ -195,6 +195,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showSpot(Spots.Spot spot) {
+        if (ttsReady) GuideService.pauseSpeech();
         stopNarration();
         if (current != null) spotHeaders.get(current.id).setText(current.name + "  ⌄\n" + current.area);
         if (detail.getParent() instanceof android.view.ViewGroup)
@@ -377,14 +378,14 @@ public final class MainActivity extends Activity {
             @Override public void onPartialResults(Bundle partial) {
                 String phrase = recognizedText(partial);
                 if (!waitingForQuestion && phrase.contains("沿途")) {
-                    waitingForQuestion = true; stopNarration(); answerText.setText("我在听，接着说你的问题…");
+                    waitingForQuestion = true; GuideService.pauseSpeech(); stopNarration(); answerText.setText("我在听，接着说你的问题…");
                 }
             }
             @Override public void onResults(Bundle results) {
                 listening = false;
                 String phrase = recognizedText(results);
                 if (phrase.contains("沿途")) {
-                    if (!waitingForQuestion) { waitingForQuestion = true; stopNarration(); }
+                    if (!waitingForQuestion) { waitingForQuestion = true; GuideService.pauseSpeech(); stopNarration(); }
                     phrase = phrase.substring(phrase.indexOf("沿途") + 2).trim();
                 } else if (!waitingForQuestion) { scheduleListening(); return; }
                 if (!phrase.isEmpty()) {
@@ -397,6 +398,10 @@ public final class MainActivity extends Activity {
                 listening = false;
                 if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
                     handsFree = false; answerText.setText("麦克风权限已关闭，免触屏提问已停止。"); return;
+                }
+                if (error == SpeechRecognizer.ERROR_NETWORK || error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT ||
+                    error == SpeechRecognizer.ERROR_SERVER) {
+                    handsFree = false; answerText.setText("语音识别服务暂不可用，稍后再点播放重试。"); return;
                 }
                 scheduleListening();
             }
@@ -545,7 +550,9 @@ public final class MainActivity extends Activity {
         if (arrival <= lastArrivalHandled || System.currentTimeMillis() - arrival > 300000) return;
         lastArrivalHandled = arrival;
         String id = guide.getString("arrival_spot", "");
-        for (Spots.Spot spot : Spots.ALL) if (spot.id.equals(id)) { showSpot(spot); break; }
+        for (Spots.Spot spot : Spots.ALL) if (spot.id.equals(id)) {
+            showSpot(spot); if (ttsReady) say(spot.story); ensureHandsFree(); break;
+        }
     }
     @Override protected void onResume() { super.onResume(); foreground = true; handler.post(refresh); scheduleListening(); }
     @Override protected void onPause() { foreground = false; handler.removeCallbacks(refresh); stopListening(); super.onPause(); }

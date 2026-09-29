@@ -4,8 +4,7 @@ import { places as bundledPlaces } from '/places.js';
 import { restaurants } from '/restaurants.js';
 
 const $ = id => document.getElementById(id);
-const state = { places: [], current: null, artifact: null, watchId: null, position: null, triggered: new Set(), favorites: new Set(), onlyFavorites: false, aiEnabled: false };
-try { state.favorites = new Set(JSON.parse(localStorage.getItem('tour-guide-favorites') || '[]')); } catch { /* 无法读取时仍可浏览 */ }
+const state = { places: [], current: null, artifact: null, watchId: null, position: null, triggered: new Set(), aiEnabled: false };
 
 let playback = { owner: null, utterance: null, paused: false };
 function updatePlayback() {
@@ -20,7 +19,7 @@ function speak(text, owner = null) {
   if (!('speechSynthesis' in window)) { $('location-status').textContent = '当前浏览器不支持朗读，仍可阅读文字'; return; }
   stopPlayback();
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = 'zh-CN'; utterance.rate = Number($('speech-rate').value);
+  utterance.lang = 'zh-CN'; utterance.rate = Number(localStorage.getItem('tour-guide-rate') || '1.0');
   const chosen = speechSynthesis.getVoices().find(v => v.voiceURI === $('speech-voice').value);
   if (chosen) utterance.voice = chosen;
   playback = { owner, utterance, paused: false }; updatePlayback();
@@ -43,16 +42,30 @@ function renderVoices() {
   if ([...$('speech-voice').options].some(option => option.value === previous)) $('speech-voice').value = previous;
 }
 function renderPlaces() {
+  const detail = $('detail');
+  if (detail.parentElement !== $('places').parentElement) $('places').after(detail);
   $('places').replaceChildren();
-  for (const place of state.places.filter(p => !state.onlyFavorites || state.favorites.has(p.id))) {
+  for (const place of state.places) {
+    const wrapper = document.createElement('article'); wrapper.className = 'place-accordion';
+    const top = document.createElement('div'); top.className = 'place-top';
     const card = document.createElement('button'); card.className = `place-card${state.current?.id === place.id ? ' selected' : ''}`;
     const area = document.createElement('small'); area.textContent = place.area + (place.kind === 'indoor' ? ' · 馆内手动选择' : ' · 室外可到点提示');
     const name = document.createElement('strong'); name.textContent = place.name;
-    const arrow = document.createElement('span'); arrow.className = 'arrow'; arrow.textContent = '查看讲解 ↗';
-    card.append(area, name, arrow); card.onclick = () => selectPlace(place);
-    $('places').append(card);
+    const arrow = document.createElement('span'); arrow.className = 'arrow'; arrow.textContent = state.current?.id === place.id ? '⌃ 收起' : '⌄ 展开';
+    card.append(name, area, arrow); card.onclick = () => state.current?.id === place.id ? collapsePlace() : selectPlace(place);
+    top.append(card);
+    if (place.kind === 'outdoor') {
+      const route = document.createElement('button'); route.className = 'route-short'; route.textContent = '高德 ↗';
+      route.setAttribute('aria-label', `高德步行去${place.name}`); route.onclick = () => routeTo(place); top.append(route);
+    }
+    wrapper.append(top);
+    if (state.current?.id === place.id) wrapper.append(detail);
+    $('places').append(wrapper);
   }
   if (!$('places').childElementCount) $('places').textContent = '还没有收藏的景点。';
+}
+function collapsePlace() {
+  stopPlayback(); $('detail').classList.add('hidden'); state.current = null; state.artifact = null; renderPlaces();
 }
 function showSources(place) {
   $('sources').replaceChildren();
@@ -83,11 +96,7 @@ function selectPlace(place, auto = false) {
   $('detail-name').textContent = place.name; $('detail-intro').textContent = place.intro;
   $('detail-story').textContent = place.story ?? place.intro;
   $('detail-look').textContent = place.lookFor || '现场细节尚未核实，请看标识。';
-  $('route').disabled = place.kind !== 'outdoor';
-  $('route').textContent = place.kind === 'outdoor' ? '↗ 去这里 · 步行路线' : '馆内请按现场导览';
   $('nearby-list').replaceChildren();
-  $('favorite').textContent = state.favorites.has(place.id) ? '★' : '☆';
-  $('favorite').setAttribute('aria-label', state.favorites.has(place.id) ? '取消收藏' : '收藏当前景点');
   $('answer').classList.add('hidden'); $('question').value = ''; $('photo').value = ''; $('photo-name').textContent = '';
   showSources(place); renderArtifacts(); renderPlaces();
   $('food-panel').open = false;
@@ -168,8 +177,6 @@ function startLocation() {
 $('locate').onclick = startLocation;
 $('listen').onclick = () => togglePlayback('listen', state.artifact?.intro ?? state.current.story ?? state.current.intro);
 $('brief').onclick = () => togglePlayback('brief', state.artifact?.intro ?? state.current.intro);
-$('stop').onclick = stopPlayback;
-$('route').onclick = () => routeTo(state.current);
 $('nearby').onclick = showNearby;
 $('food-panel').ontoggle = () => {
   if (!$('food-panel').open) return;
@@ -181,13 +188,18 @@ $('food-panel').ontoggle = () => {
 $('food-more').onclick = () => openMeituan('长沙 不辣 美食');
 $('fun-search').onclick = () => mapSearch('夜景');
 $('show-search').onclick = () => mapSearch('演出');
-$('speech-rate').value = localStorage.getItem('tour-guide-rate') || '0.96';
-$('speech-rate').onchange = () => localStorage.setItem('tour-guide-rate', $('speech-rate').value);
+function updateRates() {
+  const saved = localStorage.getItem('tour-guide-rate') || '1.0';
+  for (const option of $('speech-rate').querySelectorAll('button')) option.setAttribute('aria-pressed', String(option.dataset.rate === saved));
+}
+for (const option of $('speech-rate').querySelectorAll('button')) option.onclick = () => {
+  localStorage.setItem('tour-guide-rate', option.dataset.rate); updateRates();
+  if (playback.utterance && !playback.paused) speak(playback.utterance.text, playback.owner);
+};
+updateRates();
 $('speech-voice').onchange = () => localStorage.setItem('tour-guide-voice', $('speech-voice').value);
 renderVoices();
 if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = renderVoices;
-$('favorite').onclick = () => { const id = state.current.id; state.favorites.has(id) ? state.favorites.delete(id) : state.favorites.add(id); localStorage.setItem('tour-guide-favorites', JSON.stringify([...state.favorites])); selectPlace(state.current); };
-$('show-favorites').onclick = () => { state.onlyFavorites = !state.onlyFavorites; $('show-favorites').setAttribute('aria-pressed', String(state.onlyFavorites)); $('show-favorites').textContent = state.onlyFavorites ? '查看全部' : '☆ 只看收藏'; renderPlaces(); };
 $('photo').onchange = () => { const file = $('photo').files[0]; $('photo-name').textContent = file ? `已选：${file.name}（仅在提问时发送）` : ''; };
 
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;

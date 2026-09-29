@@ -21,6 +21,13 @@ import java.util.Set;
 
 public final class GuideService extends Service implements LocationListener, TextToSpeech.OnInitListener {
     static final String ACTION_STOP = "com.spotstory.guide.STOP";
+    private static GuideService instance;
+    static void pauseSpeech() {
+        if (instance != null) {
+            instance.pendingSpeech = null;
+            if (instance.tts != null) instance.tts.stop();
+        }
+    }
     private static final String CHANNEL = "spotstory_location";
     private static final int NOTIFICATION_ID = 14;
     private final Set<String> spoken = new HashSet<>();
@@ -31,6 +38,7 @@ public final class GuideService extends Service implements LocationListener, Tex
 
     @Override public void onCreate() {
         super.onCreate();
+        instance = this;
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
         tts = new TextToSpeech(this, this);
         ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).createNotificationChannel(
@@ -101,6 +109,7 @@ public final class GuideService extends Service implements LocationListener, Tex
         } else status("未找到中文语音引擎，仍可阅读讲解");
     }
     @Override public void onDestroy() {
+        instance = null;
         locationManager.removeUpdates(this);
         if (tts != null) { tts.stop(); tts.shutdown(); }
         status("到点讲解已停止");
