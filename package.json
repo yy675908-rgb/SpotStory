@@ -1,0 +1,12 @@
+{
+  "name": "tour-guide",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "有出处的中文景点语音讲解 PWA",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=20" }
+}

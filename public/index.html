@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#124c44">
+  <meta name="description" content="走到景点，听一段有出处的讲解。">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <title>沿途 · 景点讲解</title>
+</head>
+<body>
+  <header class="topbar"><div class="brand">沿途 <span>YAN TU</span></div><div class="tag">走到哪，讲到哪</div></header>
+  <main>
+    <section class="hero">
+      <div class="eyebrow">随身中文讲解</div>
+      <h1>眼前这一处，<br><em>有什么故事？</em></h1>
+      <p>到点听讲解，也可以直接问。每段历史信息都附出处。</p>
+      <div class="hero-actions"><button id="locate" class="primary">开启到点讲解</button><span id="location-status" role="status">定位尚未开启</span></div>
+    </section>
+
+    <section class="section-heading"><div><small>01 / 走近</small><h2>选择眼前的地方</h2></div><button id="show-favorites" class="text-button" aria-pressed="false">☆ 只看收藏</button></section>
+    <div id="places" class="place-list" aria-live="polite"></div>
+
+    <section id="detail" class="detail hidden" aria-live="polite">
+      <div class="detail-heading"><div><small id="detail-area"></small><h2 id="detail-name"></h2></div><button id="favorite" class="icon-button" aria-label="收藏当前景点">☆</button></div>
+      <p id="detail-intro" class="intro"></p>
+      <div class="button-row"><button id="listen" class="secondary">▶ 听讲解</button><button id="stop" class="outline">■ 停止</button></div>
+      <div id="artifact-section" class="hidden"><h3>馆内值得看</h3><p class="hint">看到展品后再点；室内定位无法辨认展柜。</p><div id="artifacts" class="artifact-list"></div></div>
+      <h3>接着问</h3>
+      <form id="ask-form">
+        <label class="sr-only" for="question">你想问什么</label>
+        <textarea id="question" maxlength="600" rows="2" placeholder="比如：这里为什么叫爱晚亭？" required></textarea>
+        <div class="ask-tools"><label class="photo-button" for="photo">＋ 照片（可选）</label><input id="photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><button id="voice" type="button" class="outline">🎙 说话提问</button><button id="ask" type="submit" class="primary">问一问</button></div>
+        <div id="photo-name" class="hint"></div>
+      </form>
+      <div id="answer" class="answer hidden" role="status"></div>
+      <div class="sources"><h3>内容依据</h3><ul id="sources"></ul></div>
+    </section>
+  </main>
+  <footer>试运行版本 · 长沙三处示例 · 定位结果仅作提示，请以现场标识为准</footer>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
