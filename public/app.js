@@ -4,7 +4,7 @@ import { places as bundledPlaces } from '/places.js';
 import { restaurants } from '/restaurants.js';
 
 const $ = id => document.getElementById(id);
-const state = { places: [], current: null, artifact: null, watchId: null, position: null, triggered: new Set(), aiEnabled: false };
+const state = { places: [], current: null, detailOpen: false, artifact: null, watchId: null, position: null, triggered: new Set(), aiEnabled: false };
 
 let playback = { owner: null, utterance: null, paused: false };
 function updatePlayback() {
@@ -40,11 +40,11 @@ function renderPlaces() {
   for (const place of state.places) {
     const wrapper = document.createElement('article'); wrapper.className = 'place-accordion';
     const top = document.createElement('div'); top.className = 'place-top';
-    const card = document.createElement('button'); card.className = `place-card${state.current?.id === place.id ? ' selected' : ''}`;
+    const card = document.createElement('button'); card.className = `place-card${state.current?.id === place.id && state.detailOpen ? ' selected' : ''}`;
     const area = document.createElement('small'); area.textContent = place.area + (place.kind === 'indoor' ? ' · 馆内手动选择' : ' · 室外可到点提示');
     const name = document.createElement('strong'); name.textContent = place.name;
-    const arrow = document.createElement('span'); arrow.className = 'arrow'; arrow.textContent = state.current?.id === place.id ? '⌃ 收起' : '⌄ 展开';
-    card.append(name, area, arrow); card.onclick = () => state.current?.id === place.id ? collapsePlace() : selectPlace(place);
+    const arrow = document.createElement('span'); arrow.className = 'arrow'; arrow.textContent = state.current?.id === place.id && state.detailOpen ? '⌃ 收起' : '⌄ 展开';
+    card.append(name, area, arrow); card.onclick = () => state.current?.id === place.id && state.detailOpen ? collapsePlace() : selectPlace(place);
     top.append(card);
     const play = document.createElement('button'); play.className = 'play-short'; play.dataset.playId = place.id;
     play.dataset.playName = place.name; play.type = 'button';
@@ -57,14 +57,14 @@ function renderPlaces() {
       route.setAttribute('aria-label', `高德步行去${place.name}`); route.onclick = () => routeTo(place); top.append(route);
     }
     wrapper.append(top);
-    if (state.current?.id === place.id) wrapper.append(detail);
+    if (state.current?.id === place.id && state.detailOpen) wrapper.append(detail);
     $('places').append(wrapper);
   }
   if (!$('places').childElementCount) $('places').textContent = '还没有收藏的景点。';
   updatePlayback();
 }
 function collapsePlace() {
-  stopPlayback(); $('detail').classList.add('hidden'); state.current = null; state.artifact = null; renderPlaces();
+  $('detail').classList.add('hidden'); state.detailOpen = false; renderPlaces();
 }
 function showSources(place) {
   $('sources').replaceChildren();
@@ -89,8 +89,12 @@ function renderArtifacts() {
   }
 }
 function selectPlace(place, auto = false) {
+  if (state.current?.id === place.id && !state.detailOpen) {
+    state.detailOpen = true; $('detail').classList.remove('hidden'); renderPlaces();
+    $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' }); return;
+  }
   stopPlayback();
-  state.current = place; state.artifact = null;
+  state.current = place; state.detailOpen = true; state.artifact = null;
   $('detail').classList.remove('hidden'); $('detail-area').textContent = place.area;
   $('detail-name').textContent = place.name; $('detail-intro').textContent = place.intro;
   $('detail-story').textContent = place.story ?? place.intro;

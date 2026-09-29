@@ -60,11 +60,14 @@ public final class MainActivity extends Activity {
     private SpeechRecognizer recognizer;
     private boolean handsFree, listening, waitingForQuestion, foreground;
     private int recognitionFailures;
+    private String lastNonWake = "";
     private final Runnable restartListening = this::listenAgain;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        getWindow().setStatusBarColor(green); getWindow().setNavigationBarColor(cream);
+        getWindow().setStatusBarColor(cream); getWindow().setNavigationBarColor(cream);
+        getWindow().getDecorView().setSystemUiVisibility(
+            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         tts = new TextToSpeech(this, result -> {
             if (result == TextToSpeech.SUCCESS && tts.setLanguage(Locale.SIMPLIFIED_CHINESE) >= TextToSpeech.LANG_AVAILABLE) {
                 VoiceSettings.apply(this, tts); ttsReady = true;
@@ -90,42 +93,51 @@ public final class MainActivity extends Activity {
 
     private void buildScreen() {
         scroll = new ScrollView(this); scroll.setFillViewport(true); scroll.setBackgroundColor(cream);
-        root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(24), dp(17), dp(24), dp(32));
+        root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(22), dp(14), dp(22), dp(32));
         scroll.addView(root); setContentView(scroll);
 
-        TextView brand = text("沿途  /  YAN TU", 13, green, true); root.addView(brand);
-        TextView headline = text("走到哪，讲到哪", 29, ink, true); headline.setPadding(0, dp(8), 0, dp(4)); root.addView(headline);
+        TextView brand = text("沿途", 17, green, true); root.addView(brand);
+        TextView headline = text("走到哪，讲到哪", 25, ink, true); headline.setPadding(0, dp(2), 0, dp(6)); root.addView(headline);
         voiceStatusText = text("播讲时说“沿途”提问 · 史实附来源", 12, green, false);
         root.addView(voiceStatusText);
 
-        LinearLayout location = card(); location.setBackground(round(green, 18));
-        location.setPadding(dp(20), dp(20), dp(20), dp(22));
-        TextView locTitle = text("到点讲解", 18, Color.WHITE, true); location.addView(locTitle);
-        statusText = text("定位尚未开启", 13, Color.rgb(218, 237, 227), false);
-        statusText.setPadding(0, dp(8), 0, dp(9)); location.addView(statusText);
-        LinearLayout locationActions = new LinearLayout(this);
+        LinearLayout location = new LinearLayout(this); location.setOrientation(LinearLayout.VERTICAL);
+        location.setPadding(0, dp(18), 0, dp(13));
+        TextView locTitle = text("到点讲解", 17, ink, true); location.addView(locTitle);
+        statusText = text("定位尚未开启", 13, Color.rgb(97, 116, 106), false);
+        statusText.setPadding(0, dp(4), 0, dp(8)); location.addView(statusText);
+        LinearLayout locationActions = new LinearLayout(this); locationActions.setGravity(android.view.Gravity.CENTER_VERTICAL);
         Button start = button("开启到点讲解", Color.rgb(236, 200, 141), ink);
         start.setOnClickListener(v -> enableLocation());
-        locationActions.addView(start, new LinearLayout.LayoutParams(0, dp(52), 1f));
-        Button stop = button("停止", Color.rgb(30, 96, 84), Color.WHITE);
+        locationActions.addView(start, new LinearLayout.LayoutParams(0, dp(46), 1f));
+        TextView stop = text("停止", 14, green, false); stop.setGravity(android.view.Gravity.CENTER);
         stop.setOnClickListener(v -> { stopService(new Intent(this, GuideService.class)); statusText.setText("到点讲解已停止"); });
-        LinearLayout.LayoutParams stopSize = new LinearLayout.LayoutParams(0, dp(52), 1f);
-        stopSize.setMargins(dp(6), 0, 0, 0); locationActions.addView(stop, stopSize);
+        LinearLayout.LayoutParams stopSize = new LinearLayout.LayoutParams(dp(64), dp(46));
+        stopSize.setMargins(dp(8), 0, 0, 0); locationActions.addView(stop, stopSize);
         location.addView(locationActions); root.addView(location);
+        View topDivider = new View(this); topDivider.setBackgroundColor(Color.rgb(223, 230, 218));
+        root.addView(topDivider, new LinearLayout.LayoutParams(-1, dp(1)));
 
         LinearLayout exploreActions = new LinearLayout(this);
+        exploreActions.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        exploreActions.setBackground(round(Color.WHITE, 12));
+        exploreActions.setPadding(dp(2), dp(2), dp(2), dp(2));
         String[] labels = {"吃什么", "玩什么", "找夜景", "找演出"};
         for (int i = 0; i < labels.length; i++) {
             final int action = i + 1;
             Button option = button(labels[i], Color.WHITE, green);
+            option.setBackgroundColor(Color.TRANSPARENT);
             option.setTextSize(14); option.setPadding(0, 0, 0, 0);
-            LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(0, dp(48), 1f);
-            size.setMargins(i == 0 ? 0 : dp(5), 0, 0, 0);
+            LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(0, dp(44), 1f);
             exploreActions.addView(option, size);
             option.setOnClickListener(v -> explore(action));
+            if (i < labels.length - 1) {
+                View divider = new View(this); divider.setBackgroundColor(Color.rgb(230, 235, 226));
+                exploreActions.addView(divider, new LinearLayout.LayoutParams(dp(1), dp(23)));
+            }
         }
         LinearLayout.LayoutParams exploreMargin = new LinearLayout.LayoutParams(-1, -2);
-        exploreMargin.setMargins(0, dp(12), 0, 0); root.addView(exploreActions, exploreMargin);
+        exploreMargin.setMargins(0, dp(13), 0, 0); root.addView(exploreActions, exploreMargin);
         explorePanel = card(); explorePanel.setVisibility(View.GONE); root.addView(explorePanel);
 
         LinearLayout section = new LinearLayout(this); section.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -148,7 +160,8 @@ public final class MainActivity extends Activity {
             });
         }
         section.addView(speed); root.addView(section); updateRateButtons();
-        LinearLayout spotList = card(); spotList.setPadding(dp(12), dp(2), dp(12), dp(4)); root.addView(spotList);
+        LinearLayout spotList = card(); spotList.setPadding(dp(12), dp(2), dp(12), dp(4));
+        spotList.setBackground(round(Color.WHITE, 12)); root.addView(spotList);
         for (Spots.Spot spot : Spots.ALL) {
             LinearLayout spotCard = new LinearLayout(this); spotCard.setOrientation(LinearLayout.VERTICAL);
             spotCard.setPadding(dp(2), dp(9), dp(2), dp(9)); spotCards.put(spot.id, spotCard);
@@ -174,7 +187,7 @@ public final class MainActivity extends Activity {
             play.setGravity(android.view.Gravity.CENTER);
             play.setContentDescription("播放" + spot.name + "完整故事");
             play.setOnClickListener(v -> {
-                if (current != spot || detail.getParent() != spotCard) showSpot(spot);
+                if (current != spot) showSpot(spot);
                 toggleNarration(play, spot.story);
             });
             LinearLayout.LayoutParams playSize = new LinearLayout.LayoutParams(dp(44), dp(48));
@@ -219,6 +232,12 @@ public final class MainActivity extends Activity {
     }
 
     private void showSpot(Spots.Spot spot) {
+        if (current == spot && detail.getParent() != spotCards.get(spot.id)) {
+            spotCards.get(spot.id).addView(detail); detail.setVisibility(View.VISIBLE);
+            spotHeaders.get(spot.id).setText(spot.name + "  ⌃\n" + spot.area);
+            return;
+        }
+        if (current == spot) return;
         if (ttsReady) GuideService.pauseSpeech();
         stopNarration();
         if (current != null) spotHeaders.get(current.id).setText(current.name + "  ⌄\n" + current.area);
@@ -241,10 +260,9 @@ public final class MainActivity extends Activity {
 
     private void collapseSpot() {
         if (current != null) spotHeaders.get(current.id).setText(current.name + "  ⌄\n" + current.area);
-        stopNarration(); current = null;
         if (detail.getParent() instanceof android.view.ViewGroup)
             ((android.view.ViewGroup) detail.getParent()).removeView(detail);
-        detail.setVisibility(View.GONE); stopListening();
+        detail.setVisibility(View.GONE);
     }
 
     private void updateRateButtons() {
@@ -470,10 +488,12 @@ public final class MainActivity extends Activity {
         if (recognizer != null) recognizer.destroy();
         handsFree = true;
         recognitionFailures = 0;
+        lastNonWake = "";
         recognizer = SpeechRecognizer.createSpeechRecognizer(this);
         recognizer.setRecognitionListener(new RecognitionListener() {
             @Override public void onReadyForSpeech(Bundle params) {
-                voiceStatusText.setText("正在听“沿途” · 史实附来源");
+                voiceStatusText.setText(lastNonWake.isEmpty() ? "正在听“沿途” · 史实附来源"
+                    : "正在听 · 上次听到“" + lastNonWake + "”");
             }
             @Override public void onBeginningOfSpeech() { }
             @Override public void onRmsChanged(float rmsdB) { }
@@ -490,9 +510,13 @@ public final class MainActivity extends Activity {
                 String phrase = recognizedText(results);
                 int wake = wakeIndex(phrase);
                 if (wake >= 0) {
+                    lastNonWake = "";
                     if (!waitingForQuestion) interruptForQuestion();
                     phrase = phrase.substring(wake + 2).trim();
-                } else if (!waitingForQuestion) { scheduleListening(); return; }
+                } else if (!waitingForQuestion) {
+                    if (!phrase.isEmpty()) lastNonWake = phrase.substring(0, Math.min(phrase.length(), 8));
+                    scheduleListening(); return;
+                }
                 if (!phrase.isEmpty()) {
                     waitingForQuestion = false;
                     handleVoiceQuestion(phrase);
@@ -548,6 +572,10 @@ public final class MainActivity extends Activity {
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN");
         intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            ArrayList<String> hints = new ArrayList<>(); hints.add("沿途"); hints.add("沿途我要问");
+            intent.putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, hints);
+        }
         try { recognizer.startListening(intent); listening = true; }
         catch (RuntimeException e) {
             listening = false; handsFree = false;
@@ -575,6 +603,7 @@ public final class MainActivity extends Activity {
     private void startNarration(String content, TextView button) {
         if (!ttsReady) { answerText.setText("系统中文语音尚未就绪，可阅读文字讲解"); return; }
         stopNarration();
+        lastNonWake = "";
         for (String part : content.split("(?<=[。！？；])|\\n+")) if (!part.trim().isEmpty()) speechChunks.add(part.trim());
         if (speechChunks.isEmpty()) return;
         speechButton = button; speaking = true; playNextChunk(); updateSpeechButtons();
@@ -704,6 +733,7 @@ public final class MainActivity extends Activity {
     private Button button(String value, int background, int foreground) {
         Button button = new Button(this); button.setText(value); button.setTextColor(foreground); button.setTextSize(15);
         button.setAllCaps(false); button.setBackground(round(background, 12)); button.setPadding(dp(15), dp(11), dp(15), dp(11));
+        button.setStateListAnimator(null); button.setElevation(0); button.setTranslationZ(0);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2); params.setMargins(0, dp(9), 0, 0);
         button.setLayoutParams(params); return button;
     }
