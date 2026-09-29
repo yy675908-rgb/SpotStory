@@ -72,7 +72,7 @@ public final class GuideService extends Service implements LocationListener, Tex
         if (spot != null && spoken.add(spot.id)) {
             status("已到达：" + spot.name);
             ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(NOTIFICATION_ID, notification("已到达：" + spot.name));
-            say(spot.intro);
+            say(spot.story);
         }
     }
 
@@ -93,6 +93,7 @@ public final class GuideService extends Service implements LocationListener, Tex
     }
     @Override public void onInit(int result) {
         if (result == TextToSpeech.SUCCESS && tts.setLanguage(Locale.SIMPLIFIED_CHINESE) >= TextToSpeech.LANG_AVAILABLE) {
+            VoiceSettings.apply(this, tts);
             ttsReady = true;
             if (pendingSpeech != null) { say(pendingSpeech); pendingSpeech = null; }
         } else status("未找到中文语音引擎，仍可阅读讲解");

@@ -2,6 +2,7 @@ package com.spotstory.guide;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -14,6 +15,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.speech.RecognizerIntent;
 import android.speech.tts.TextToSpeech;
+import android.speech.tts.Voice;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -21,6 +23,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import java.util.ArrayList;
 import java.util.Locale;
+import java.util.List;
 
 public final class MainActivity extends Activity {
     private static final int LOCATION_REQUEST = 10, VOICE_REQUEST = 11;
@@ -31,15 +34,17 @@ public final class MainActivity extends Activity {
     private boolean ttsReady;
     private ScrollView scroll;
     private LinearLayout root, detail, artifacts;
-    private TextView statusText, nameText, introText, answerText, areaText;
-    private Button favoriteButton;
+    private TextView statusText, nameText, introText, storyText, answerText, areaText;
+    private Button favoriteButton, rateButton;
     private Spots.Spot current;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().setStatusBarColor(green); getWindow().setNavigationBarColor(cream);
         tts = new TextToSpeech(this, result -> {
-            if (result == TextToSpeech.SUCCESS && tts.setLanguage(Locale.SIMPLIFIED_CHINESE) >= TextToSpeech.LANG_AVAILABLE) ttsReady = true;
+            if (result == TextToSpeech.SUCCESS && tts.setLanguage(Locale.SIMPLIFIED_CHINESE) >= TextToSpeech.LANG_AVAILABLE) {
+                VoiceSettings.apply(this, tts); ttsReady = true;
+            }
             else if (statusText != null) statusText.setText("未找到中文语音引擎，文字讲解仍可阅读");
         });
         buildScreen();
@@ -76,9 +81,22 @@ public final class MainActivity extends Activity {
         areaText = text("", 12, green, false); detail.addView(areaText);
         nameText = text("", 24, ink, true); nameText.setPadding(0, dp(5), 0, dp(8)); detail.addView(nameText);
         introText = text("", 16, ink, false); introText.setLineSpacing(dp(4), 1f); detail.addView(introText);
+        TextView storyHeading = text("再听一段 · 历史与典故", 18, green, true);
+        storyHeading.setPadding(0, dp(18), 0, dp(5)); detail.addView(storyHeading);
+        storyText = text("", 15, ink, false); storyText.setLineSpacing(dp(5), 1f); detail.addView(storyText);
         artifacts = new LinearLayout(this); artifacts.setOrientation(LinearLayout.VERTICAL); detail.addView(artifacts);
-        Button speak = button("▶ 听讲解", green, Color.WHITE);
-        speak.setOnClickListener(v -> say(introText.getText().toString())); detail.addView(speak);
+        Button speak = button("▶ 听完整故事", green, Color.WHITE);
+        speak.setOnClickListener(v -> say(current == null ? "" : current.story)); detail.addView(speak);
+        Button brief = button("▶ 听简短介绍", Color.WHITE, green);
+        brief.setOnClickListener(v -> say(current == null ? "" : current.intro)); detail.addView(brief);
+        rateButton = button("语速：" + VoiceSettings.RATE_LABELS[VoiceSettings.rateIndex(this)], Color.WHITE, green);
+        rateButton.setOnClickListener(v -> {
+            int next = (VoiceSettings.rateIndex(this) + 1) % VoiceSettings.RATES.length;
+            VoiceSettings.setRate(this, next); rateButton.setText("语速：" + VoiceSettings.RATE_LABELS[next]);
+            if (ttsReady) VoiceSettings.apply(this, tts);
+        }); detail.addView(rateButton);
+        Button voiceChoice = button("选择手机中文音色", Color.WHITE, green);
+        voiceChoice.setOnClickListener(v -> chooseVoice()); detail.addView(voiceChoice);
         Button stopSpeech = button("■ 停止朗读", Color.WHITE, green);
         stopSpeech.setOnClickListener(v -> { if (tts != null) tts.stop(); }); detail.addView(stopSpeech);
         favoriteButton = button("☆ 收藏", Color.WHITE, green); favoriteButton.setOnClickListener(v -> toggleFavorite()); detail.addView(favoriteButton);
@@ -92,14 +110,14 @@ public final class MainActivity extends Activity {
     }
 
     private void showSpot(Spots.Spot spot) {
-        current = spot; areaText.setText(spot.area); nameText.setText(spot.name); introText.setText(spot.intro);
+        current = spot; areaText.setText(spot.area); nameText.setText(spot.name); introText.setText(spot.intro); storyText.setText(spot.story);
         answerText.setText(""); artifacts.removeAllViews();
         if (!spot.artifacts.isEmpty()) {
             TextView label = text("馆内值得看 · 看到展品后选择", 14, green, true);
             label.setPadding(0, dp(16), 0, dp(3)); artifacts.addView(label);
             for (Spots.Artifact artifact : spot.artifacts) {
                 Button item = button(artifact.name, Color.rgb(239, 246, 238), green);
-                item.setOnClickListener(v -> { introText.setText(artifact.intro); answerText.setText(""); }); artifacts.addView(item);
+                item.setOnClickListener(v -> { answerText.setText(artifact.intro); say(artifact.intro); }); artifacts.addView(item);
             }
         }
         updateFavorite();
@@ -157,6 +175,21 @@ public final class MainActivity extends Activity {
     private void say(String content) {
         if (ttsReady) tts.speak(content, TextToSpeech.QUEUE_FLUSH, null, "manual");
         else answerText.setText("系统中文语音尚未就绪，可阅读文字讲解");
+    }
+    private void chooseVoice() {
+        if (!ttsReady) { answerText.setText("系统中文语音尚未就绪"); return; }
+        List<Voice> voices = VoiceSettings.chineseVoices(tts);
+        if (voices.isEmpty()) { answerText.setText("手机当前没有可选的中文音色，可在系统语音设置安装"); return; }
+        String[] labels = new String[voices.size()];
+        for (int i = 0; i < voices.size(); i++) {
+            Voice voice = voices.get(i);
+            labels[i] = voice.getName() + (voice.isNetworkConnectionRequired() ? " · 需联网" : " · 本机");
+        }
+        new AlertDialog.Builder(this).setTitle("选择中文音色（取决于手机语音引擎）")
+            .setItems(labels, (dialog, index) -> {
+                VoiceSettings.setVoice(this, voices.get(index).getName());
+                VoiceSettings.apply(this, tts); say("你好，这里是沿途。我们慢慢听一段故事。");
+            }).setNegativeButton("取消", null).show();
     }
     private void updateStatus() {
         if (statusText != null) statusText.setText(getSharedPreferences("guide", MODE_PRIVATE).getString("status", "定位尚未开启"));

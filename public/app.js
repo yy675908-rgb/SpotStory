@@ -9,8 +9,19 @@ function speak(text) {
   if (!('speechSynthesis' in window)) { $('location-status').textContent = '当前浏览器不支持朗读，仍可阅读文字'; return; }
   speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = 'zh-CN'; utterance.rate = .92;
+  utterance.lang = 'zh-CN'; utterance.rate = Number($('speech-rate').value);
+  const chosen = speechSynthesis.getVoices().find(v => v.voiceURI === $('speech-voice').value);
+  if (chosen) utterance.voice = chosen;
   speechSynthesis.speak(utterance);
+}
+function renderVoices() {
+  if (!('speechSynthesis' in window)) return;
+  const previous = $('speech-voice').value || localStorage.getItem('tour-guide-voice') || '';
+  $('speech-voice').replaceChildren(new Option('系统默认', ''));
+  for (const voice of speechSynthesis.getVoices().filter(v => v.lang.toLowerCase().startsWith('zh'))) {
+    $('speech-voice').add(new Option(`${voice.name} · ${voice.lang}${voice.localService ? ' · 本机' : ' · 需联网'}`, voice.voiceURI));
+  }
+  if ([...$('speech-voice').options].some(option => option.value === previous)) $('speech-voice').value = previous;
 }
 function renderPlaces() {
   $('places').replaceChildren();
@@ -40,6 +51,7 @@ function renderArtifacts() {
     button.textContent = artifact.name; button.onclick = () => {
       state.artifact = state.artifact?.id === artifact.id ? null : artifact;
       $('detail-intro').textContent = state.artifact?.intro ?? state.current.intro;
+      $('detail-story').textContent = state.artifact?.intro ?? state.current.story ?? state.current.intro;
       $('answer').classList.add('hidden'); renderArtifacts();
     }; $('artifacts').append(button);
   }
@@ -48,11 +60,12 @@ function selectPlace(place, auto = false) {
   state.current = place; state.artifact = null;
   $('detail').classList.remove('hidden'); $('detail-area').textContent = place.area;
   $('detail-name').textContent = place.name; $('detail-intro').textContent = place.intro;
+  $('detail-story').textContent = place.story ?? place.intro;
   $('favorite').textContent = state.favorites.has(place.id) ? '★' : '☆';
   $('favorite').setAttribute('aria-label', state.favorites.has(place.id) ? '取消收藏' : '收藏当前景点');
   $('answer').classList.add('hidden'); $('question').value = ''; $('photo').value = ''; $('photo-name').textContent = '';
   showSources(place); renderArtifacts(); renderPlaces();
-  if (auto) { $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' }); speak(place.intro); }
+  if (auto) { $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' }); speak(place.story ?? place.intro); }
 }
 function startLocation() {
   if (state.watchId !== null) { navigator.geolocation.clearWatch(state.watchId); state.watchId = null; $('locate').textContent = '开启到点讲解'; $('location-status').textContent = '已暂停定位'; return; }
@@ -69,8 +82,14 @@ function startLocation() {
 }
 
 $('locate').onclick = startLocation;
-$('listen').onclick = () => speak(state.artifact?.intro ?? state.current.intro);
+$('listen').onclick = () => speak(state.artifact?.intro ?? state.current.story ?? state.current.intro);
+$('brief').onclick = () => speak(state.artifact?.intro ?? state.current.intro);
 $('stop').onclick = () => { if ('speechSynthesis' in window) speechSynthesis.cancel(); };
+$('speech-rate').value = localStorage.getItem('tour-guide-rate') || '0.96';
+$('speech-rate').onchange = () => localStorage.setItem('tour-guide-rate', $('speech-rate').value);
+$('speech-voice').onchange = () => localStorage.setItem('tour-guide-voice', $('speech-voice').value);
+renderVoices();
+if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = renderVoices;
 $('favorite').onclick = () => { const id = state.current.id; state.favorites.has(id) ? state.favorites.delete(id) : state.favorites.add(id); localStorage.setItem('tour-guide-favorites', JSON.stringify([...state.favorites])); selectPlace(state.current); };
 $('show-favorites').onclick = () => { state.onlyFavorites = !state.onlyFavorites; $('show-favorites').setAttribute('aria-pressed', String(state.onlyFavorites)); $('show-favorites').textContent = state.onlyFavorites ? '查看全部' : '☆ 只看收藏'; renderPlaces(); };
 $('photo').onchange = () => { const file = $('photo').files[0]; $('photo-name').textContent = file ? `已选：${file.name}（仅在提问时发送）` : ''; };

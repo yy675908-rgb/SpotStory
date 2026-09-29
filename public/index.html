@@ -26,7 +26,10 @@
     <section id="detail" class="detail hidden" aria-live="polite">
       <div class="detail-heading"><div><small id="detail-area"></small><h2 id="detail-name"></h2></div><button id="favorite" class="icon-button" aria-label="收藏当前景点">☆</button></div>
       <p id="detail-intro" class="intro"></p>
-      <div class="button-row"><button id="listen" class="secondary">▶ 听讲解</button><button id="stop" class="outline">■ 停止</button></div>
+      <h3>再听一段 · 历史与典故</h3><p id="detail-story" class="intro"></p>
+      <div class="button-row"><button id="listen" class="secondary">▶ 听完整故事</button><button id="brief" class="outline">听简短介绍</button><button id="stop" class="outline">■ 停止</button></div>
+      <div class="voice-controls"><label for="speech-rate">语速</label><select id="speech-rate"><option value="0.86">舒缓</option><option value="0.96" selected>自然</option><option value="1.08">明快</option></select><label for="speech-voice">中文音色</label><select id="speech-voice"><option value="">系统默认</option></select></div>
+      <p class="hint">音色来自当前手机或浏览器的语音引擎，实际效果因设备而异。</p>
       <div id="artifact-section" class="hidden"><h3>馆内值得看</h3><p class="hint">看到展品后再点；室内定位无法辨认展柜。</p><div id="artifacts" class="artifact-list"></div></div>
       <h3>接着问</h3>
       <form id="ask-form">
