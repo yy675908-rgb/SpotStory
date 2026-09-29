@@ -3,7 +3,11 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
-    <queries><package android:name="com.sankuai.meituan"/></queries>
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <queries>
+        <package android:name="com.sankuai.meituan"/>
+        <intent><action android:name="android.speech.RecognitionService"/></intent>
+    </queries>
 
     <application android:allowBackup="false" android:label="沿途" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:usesCleartextTraffic="false" android:icon="@drawable/ic_spotstory">
         <activity android:name="com.spotstory.guide.MainActivity" android:exported="true">

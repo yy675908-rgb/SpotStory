@@ -11,7 +11,7 @@ import java.util.Set;
 
 final class VoiceSettings {
     private static final String PREFS = "narration_voice";
-    static final float[] RATES = {0.86f, 0.96f, 1.08f};
+    static final float[] RATES = {0.78f, 1.0f, 1.25f};
     static final String[] RATE_LABELS = {"舒缓", "自然", "明快"};
 
     static int rateIndex(Context context) {
@@ -37,14 +37,14 @@ final class VoiceSettings {
     }
     static void apply(Context context, TextToSpeech tts) {
         tts.setLanguage(Locale.SIMPLIFIED_CHINESE);
-        tts.setSpeechRate(RATES[rateIndex(context)]);
         tts.setPitch(1.0f);
         List<Voice> voices = chineseVoices(tts);
         String saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("voice", "");
         for (Voice voice : voices) if (voice.getName().equals(saved)) {
-            tts.setVoice(voice); return;
+            tts.setVoice(voice); tts.setSpeechRate(RATES[rateIndex(context)]); return;
         }
         if (!voices.isEmpty()) tts.setVoice(voices.get(0));
+        tts.setSpeechRate(RATES[rateIndex(context)]);
     }
     private VoiceSettings() {}
 }
