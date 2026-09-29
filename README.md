@@ -19,6 +19,12 @@ node server.js
 
 访问 `http://localhost:3000`。手机访问需要 HTTPS 站点（浏览器定位和安装 PWA 通常要求安全上下文）；电脑上的 localhost 可直接测试。`npm test` 检查坐标匹配及问答 API 边界。
 
+## Android APK
+
+`android/` 是独立的 Android 原生工程，包名 `com.spotstory.guide`，最低 Android 8.0。它内置三处示例讲解、景点与文物手动选择、中文系统朗读、收藏、有限的离线语音提问，以及有通知提示的前台到点定位服务；锁屏时服务可继续运行，用户须从可见界面主动开启。没有 AI 接口时，不会对资料以外的问题编造答案。
+
+GitHub Actions 的 **Build Android APK** 工作流在 Android 代码更新时构建调试版 APK，文件在对应运行记录的 Artifacts 中。调试版适合个人安装试用，发布给其他用户前还需要正式签名、设备实测和内容扩充。本地有 Android SDK 与 Gradle 8.9 时可在 `android/` 执行 `gradle :app:assembleDebug`。
+
 ## AI 接口（可选）
 
 在服务端设置 `AI_API_BASE_URL`（以 `/v1/` 结尾的兼容地址）、`AI_API_KEY`、`AI_MODEL`。请勿把密钥写进网页、仓库或提交 `.env`。例：
