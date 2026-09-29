@@ -69,6 +69,9 @@ public final class GuideService extends Service implements LocationListener, Tex
         }
         Spots.Spot spot = Spots.nearest(location);
         if (spot != null && spoken.add(spot.id)) {
+            getSharedPreferences("guide", MODE_PRIVATE).edit()
+                .putString("arrival_spot", spot.id)
+                .putLong("arrival_time", System.currentTimeMillis()).apply();
             status("已到达：" + spot.name);
             ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(NOTIFICATION_ID, notification("已到达：" + spot.name));
             say(spot.story);

@@ -39,6 +39,7 @@ public final class MainActivity extends Activity {
     private TextView statusText, nameText, introText, storyText, lookForText, answerText, areaText;
     private Button favoriteButton, rateButton;
     private Spots.Spot current;
+    private long lastArrivalHandled;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -288,7 +289,14 @@ public final class MainActivity extends Activity {
             spot.gcj ? gcj[1] : original.getLongitude(), spot.lat, spot.lng);
     }
     private void updateStatus() {
-        if (statusText != null) statusText.setText(getSharedPreferences("guide", MODE_PRIVATE).getString("status", "定位尚未开启"));
+        if (statusText == null) return;
+        android.content.SharedPreferences guide = getSharedPreferences("guide", MODE_PRIVATE);
+        statusText.setText(guide.getString("status", "定位尚未开启"));
+        long arrival = guide.getLong("arrival_time", 0);
+        if (arrival <= lastArrivalHandled || System.currentTimeMillis() - arrival > 300000) return;
+        lastArrivalHandled = arrival;
+        String id = guide.getString("arrival_spot", "");
+        for (Spots.Spot spot : Spots.ALL) if (spot.id.equals(id)) { showSpot(spot); break; }
     }
     @Override protected void onResume() { super.onResume(); handler.post(refresh); }
     @Override protected void onPause() { handler.removeCallbacks(refresh); super.onPause(); }
