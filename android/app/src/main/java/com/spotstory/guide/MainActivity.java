@@ -10,6 +10,8 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.location.Location;
+import android.location.LocationManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -34,7 +36,7 @@ public final class MainActivity extends Activity {
     private boolean ttsReady;
     private ScrollView scroll;
     private LinearLayout root, detail, artifacts;
-    private TextView statusText, nameText, introText, storyText, answerText, areaText;
+    private TextView statusText, nameText, introText, storyText, lookForText, answerText, areaText;
     private Button favoriteButton, rateButton;
     private Spots.Spot current;
 
@@ -74,13 +76,16 @@ public final class MainActivity extends Activity {
         for (Spots.Spot spot : Spots.ALL) {
             Button item = button(spot.name + "  ↗\n" + spot.area, Color.WHITE, ink);
             item.setGravity(android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL);
-            item.setOnClickListener(v -> showSpot(spot)); root.addView(item);
+            item.setOnClickListener(v -> { showSpot(spot); scroll.post(() -> scroll.smoothScrollTo(0, detail.getTop())); }); root.addView(item);
         }
 
         detail = card(); root.addView(detail);
         areaText = text("", 12, green, false); detail.addView(areaText);
         nameText = text("", 24, ink, true); nameText.setPadding(0, dp(5), 0, dp(8)); detail.addView(nameText);
         introText = text("", 16, ink, false); introText.setLineSpacing(dp(4), 1f); detail.addView(introText);
+        TextView findHeading = text("到现场看哪里", 18, green, true);
+        findHeading.setPadding(0, dp(18), 0, dp(5)); detail.addView(findHeading);
+        lookForText = text("", 15, ink, false); lookForText.setLineSpacing(dp(4), 1f); detail.addView(lookForText);
         TextView storyHeading = text("再听一段 · 历史与典故", 18, green, true);
         storyHeading.setPadding(0, dp(18), 0, dp(5)); detail.addView(storyHeading);
         storyText = text("", 15, ink, false); storyText.setLineSpacing(dp(5), 1f); detail.addView(storyText);
@@ -89,6 +94,16 @@ public final class MainActivity extends Activity {
         speak.setOnClickListener(v -> say(current == null ? "" : current.story)); detail.addView(speak);
         Button brief = button("▶ 听简短介绍", Color.WHITE, green);
         brief.setOnClickListener(v -> say(current == null ? "" : current.intro)); detail.addView(brief);
+        Button navigate = button("↗ 去这里 · 高德步行路线", Color.rgb(236, 200, 141), ink);
+        navigate.setOnClickListener(v -> navigateTo(current)); detail.addView(navigate);
+        Button nearby = button("附近有什么", Color.WHITE, green);
+        nearby.setOnClickListener(v -> { String result = nearbyText(); answerText.setText(result); say(result); }); detail.addView(nearby);
+        Button food = button("附近找湘菜正餐", Color.WHITE, green);
+        food.setOnClickListener(v -> searchMap("湘菜 正餐")); detail.addView(food);
+        Button fun = button("附近找夜景", Color.WHITE, green);
+        fun.setOnClickListener(v -> searchMap("夜景")); detail.addView(fun);
+        Button show = button("附近找演出", Color.WHITE, green);
+        show.setOnClickListener(v -> searchMap("演出")); detail.addView(show);
         rateButton = button("语速：" + VoiceSettings.RATE_LABELS[VoiceSettings.rateIndex(this)], Color.WHITE, green);
         rateButton.setOnClickListener(v -> {
             int next = (VoiceSettings.rateIndex(this) + 1) % VoiceSettings.RATES.length;
@@ -105,12 +120,13 @@ public final class MainActivity extends Activity {
         Button source = button("查看资料来源 ↗", Color.WHITE, green);
         source.setOnClickListener(v -> { if (current != null) startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(current.source))); });
         detail.addView(source);
-        TextView note = text("当前仅收录三处长沙示例。馆内请手动选展品；到点讲解会在通知栏持续运行，停止后不再定位。", 12, Color.rgb(97, 116, 106), false);
+        TextView note = text("长沙讲解点持续扩充。步行路线由高德地图规划；GPS 无法可靠判断具体岔路或馆内展柜。到点讲解会在通知栏运行，停止后不再定位。", 12, Color.rgb(97, 116, 106), false);
         note.setPadding(0, dp(14), 0, 0); root.addView(note);
     }
 
     private void showSpot(Spots.Spot spot) {
         current = spot; areaText.setText(spot.area); nameText.setText(spot.name); introText.setText(spot.intro); storyText.setText(spot.story);
+        lookForText.setText(spot.lookFor.isEmpty() ? "现场细节尚未核实，请看标识。" : spot.lookFor);
         answerText.setText(""); artifacts.removeAllViews();
         if (!spot.artifacts.isEmpty()) {
             TextView label = text("馆内值得看 · 看到展品后选择", 14, green, true);
@@ -165,7 +181,18 @@ public final class MainActivity extends Activity {
         if (requestCode == VOICE_REQUEST && resultCode == RESULT_OK && data != null && current != null) {
             ArrayList<String> heard = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
             if (heard != null && !heard.isEmpty()) {
-                String answer = Spots.answer(current, heard.get(0));
+                String question = heard.get(0);
+                if (question.contains("怎么走") || question.contains("我要去") || question.contains("带我去")) {
+                    for (Spots.Spot destination : Spots.ALL) if (destination.radius > 0 &&
+                        (question.contains(destination.name.split(" · ")[0]) ||
+                         (destination.id.equals("juzizhou") && question.contains("橘子洲")) ||
+                         (destination.id.equals("taiping") && question.contains("太平街")))) {
+                        answerText.setText("已打开去“" + destination.name + "”的步行路线");
+                        navigateTo(destination); return;
+                    }
+                }
+                String answer = question.contains("附近") || question.contains("周围") || question.contains("前面有什么")
+                    ? nearbyText() : Spots.answer(current, question);
                 answerText.setText("你问：“" + heard.get(0) + "”\n" + answer);
                 say(answer);
             }
@@ -190,6 +217,61 @@ public final class MainActivity extends Activity {
                 VoiceSettings.setVoice(this, voices.get(index).getName());
                 VoiceSettings.apply(this, tts); say("你好，这里是沿途。我们慢慢听一段故事。");
             }).setNegativeButton("取消", null).show();
+    }
+    private void navigateTo(Spots.Spot spot) {
+        if (spot == null) return;
+        if (spot.radius <= 0) { answerText.setText("馆内位置请按现场导览手动寻找"); return; }
+        double[] point = spot.gcj ? new double[]{spot.lat, spot.lng} : Geo.wgsToGcj(spot.lat, spot.lng);
+        Uri route = Uri.parse("https://uri.amap.com/navigation").buildUpon()
+            .appendQueryParameter("from", "")
+            .appendQueryParameter("to", point[1] + "," + point[0] + "," + spot.name)
+            .appendQueryParameter("mode", "walk").appendQueryParameter("callnative", "1")
+            .appendQueryParameter("src", "yantu").build();
+        try { startActivity(new Intent(Intent.ACTION_VIEW, route)); }
+        catch (ActivityNotFoundException e) { answerText.setText("没有可用的地图应用或浏览器"); }
+    }
+    private void searchMap(String query) {
+        Uri.Builder builder = Uri.parse("https://uri.amap.com/search").buildUpon()
+            .appendQueryParameter("keyword", query).appendQueryParameter("city", "长沙");
+        if (current != null && current.radius > 0) {
+            double[] point = current.gcj ? new double[]{current.lat, current.lng} : Geo.wgsToGcj(current.lat, current.lng);
+            builder.appendQueryParameter("center", point[1] + "," + point[0]);
+        }
+        Uri url = builder.appendQueryParameter("view", "list").appendQueryParameter("callnative", "1")
+            .appendQueryParameter("src", "yantu").build();
+        try { startActivity(new Intent(Intent.ACTION_VIEW, url)); }
+        catch (ActivityNotFoundException e) { answerText.setText("没有可用的地图应用或浏览器"); }
+    }
+    private String nearbyText() {
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+            return "先开启定位权限，再查附近讲解点。";
+        LocationManager manager = (LocationManager) getSystemService(LOCATION_SERVICE);
+        Location best = null;
+        for (String provider : new String[]{LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER}) {
+            try {
+                Location value = manager.getLastKnownLocation(provider);
+                if (value != null && (best == null || value.getTime() > best.getTime())) best = value;
+            } catch (SecurityException | IllegalArgumentException ignored) { }
+        }
+        if (best == null || System.currentTimeMillis() - best.getTime() > 120000 || !best.hasAccuracy() || best.getAccuracy() > 100)
+            return "位置还不够新或不够准。请开启到点讲解，等定位更新后再试。";
+        final Location position = best;
+        double[] gcj = Geo.wgsToGcj(position.getLatitude(), position.getLongitude());
+        java.util.List<Spots.Spot> candidates = new java.util.ArrayList<>();
+        for (Spots.Spot spot : Spots.ALL) if (spot.radius > 0) candidates.add(spot);
+        candidates.sort((a, b) -> Double.compare(nearbyDistance(a, position, gcj), nearbyDistance(b, position, gcj)));
+        StringBuilder result = new StringBuilder("附近已收录：");
+        for (int i = 0; i < Math.min(3, candidates.size()); i++) {
+            Spots.Spot spot = candidates.get(i);
+            result.append(i == 0 ? "" : "、").append(spot.name).append("约")
+                .append(Math.round(nearbyDistance(spot, position, gcj))).append("米");
+        }
+        return result.append("。这是直线距离；步行路线请点选目的地后打开地图。").toString();
+    }
+    private double nearbyDistance(Spots.Spot spot, Location original, double[] gcj) {
+        return Geo.distance(spot.gcj ? gcj[0] : original.getLatitude(),
+            spot.gcj ? gcj[1] : original.getLongitude(), spot.lat, spot.lng);
     }
     private void updateStatus() {
         if (statusText != null) statusText.setText(getSharedPreferences("guide", MODE_PRIVATE).getString("status", "定位尚未开启"));

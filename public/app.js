@@ -1,4 +1,4 @@
-import { nearestPlace } from '/geo.js';
+import { nearestPlace, distanceM, wgsToGcj } from '/geo.js';
 import { places as bundledPlaces } from '/places.js';
 
 const $ = id => document.getElementById(id);
@@ -52,6 +52,7 @@ function renderArtifacts() {
       state.artifact = state.artifact?.id === artifact.id ? null : artifact;
       $('detail-intro').textContent = state.artifact?.intro ?? state.current.intro;
       $('detail-story').textContent = state.artifact?.intro ?? state.current.story ?? state.current.intro;
+      $('detail-look').textContent = state.artifact ? '看展柜旁的正式说明牌；馆内位置请按现场导览寻找。' : state.current.lookFor || '现场细节尚未核实，请看标识。';
       $('answer').classList.add('hidden'); renderArtifacts();
     }; $('artifacts').append(button);
   }
@@ -61,11 +62,47 @@ function selectPlace(place, auto = false) {
   $('detail').classList.remove('hidden'); $('detail-area').textContent = place.area;
   $('detail-name').textContent = place.name; $('detail-intro').textContent = place.intro;
   $('detail-story').textContent = place.story ?? place.intro;
+  $('detail-look').textContent = place.lookFor || '现场细节尚未核实，请看标识。';
+  $('route').disabled = place.kind !== 'outdoor';
+  $('route').textContent = place.kind === 'outdoor' ? '↗ 去这里 · 步行路线' : '馆内请按现场导览';
+  $('nearby-list').replaceChildren();
   $('favorite').textContent = state.favorites.has(place.id) ? '★' : '☆';
   $('favorite').setAttribute('aria-label', state.favorites.has(place.id) ? '取消收藏' : '收藏当前景点');
   $('answer').classList.add('hidden'); $('question').value = ''; $('photo').value = ''; $('photo-name').textContent = '';
   showSources(place); renderArtifacts(); renderPlaces();
-  if (auto) { $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' }); speak(place.story ?? place.intro); }
+  $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (auto) speak(place.story ?? place.intro);
+}
+function routeTo(place) {
+  if (!place || place.kind !== 'outdoor') return;
+  const point = place.gcj ?? wgsToGcj(place.wgs);
+  const query = new URLSearchParams({ from: '', to: `${point.lng},${point.lat},${place.name}`, mode: 'walk', callnative: '1', src: 'yantu' });
+  window.open(`https://uri.amap.com/navigation?${query}`, '_blank', 'noopener');
+}
+function mapSearch(keyword) {
+  const query = new URLSearchParams({ keyword, city: '长沙', view: 'list', callnative: '1', src: 'yantu' });
+  const point = state.current?.gcj ?? (state.current?.wgs && wgsToGcj(state.current.wgs));
+  if (point) query.set('center', `${point.lng},${point.lat}`);
+  window.open(`https://uri.amap.com/search?${query}`, '_blank', 'noopener');
+}
+function showNearby() {
+  const box = $('nearby-list'); box.textContent = '正在确认附近位置…';
+  if (!navigator.geolocation) { box.textContent = '当前浏览器不支持定位。'; return; }
+  navigator.geolocation.getCurrentPosition(position => {
+    if (position.coords.accuracy > 100) { box.textContent = `定位误差约 ${Math.round(position.coords.accuracy)} 米，暂不判断附近。`; return; }
+    const wgs = { lat: position.coords.latitude, lng: position.coords.longitude };
+    const gcj = wgsToGcj(wgs);
+    const matches = state.places.filter(p => p.kind === 'outdoor').map(place => ({
+      place, meters: distanceM(place.gcj ? gcj : wgs, place.gcj ?? place.wgs)
+    })).filter(item => item.meters <= 2000).sort((a, b) => a.meters - b.meters).slice(0, 4);
+    box.replaceChildren();
+    if (!matches.length) { box.textContent = '附近两公里内暂无收录的长沙讲解点。'; return; }
+    for (const item of matches) {
+      const button = document.createElement('button'); button.className = 'artifact';
+      button.textContent = `${item.place.name} · 直线约 ${Math.round(item.meters)} 米`;
+      button.onclick = () => selectPlace(item.place); box.append(button);
+    }
+  }, () => { box.textContent = '定位不可用，请先允许定位或手动选景点。'; }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
 }
 function startLocation() {
   if (state.watchId !== null) { navigator.geolocation.clearWatch(state.watchId); state.watchId = null; $('locate').textContent = '开启到点讲解'; $('location-status').textContent = '已暂停定位'; return; }
@@ -85,6 +122,11 @@ $('locate').onclick = startLocation;
 $('listen').onclick = () => speak(state.artifact?.intro ?? state.current.story ?? state.current.intro);
 $('brief').onclick = () => speak(state.artifact?.intro ?? state.current.intro);
 $('stop').onclick = () => { if ('speechSynthesis' in window) speechSynthesis.cancel(); };
+$('route').onclick = () => routeTo(state.current);
+$('nearby').onclick = showNearby;
+$('food-search').onclick = () => mapSearch('湘菜 正餐');
+$('fun-search').onclick = () => mapSearch('夜景');
+$('show-search').onclick = () => mapSearch('演出');
 $('speech-rate').value = localStorage.getItem('tour-guide-rate') || '0.96';
 $('speech-rate').onchange = () => localStorage.setItem('tour-guide-rate', $('speech-rate').value);
 $('speech-voice').onchange = () => localStorage.setItem('tour-guide-voice', $('speech-voice').value);
