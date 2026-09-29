@@ -111,17 +111,19 @@ public final class MainActivity extends Activity {
         scroll.addView(root); setContentView(scroll);
 
         LinearLayout intro = new LinearLayout(this); intro.setOrientation(LinearLayout.VERTICAL);
-        intro.setPadding(dp(22), dp(3), dp(22), dp(13)); root.addView(intro);
-        TextView brand = text("沿途", 18, green, true); intro.addView(brand);
-        TextView latin = text("YAN TU", 10, green, false);
-        latin.setLetterSpacing(.28f); latin.setPadding(dp(1), 0, 0, dp(10)); intro.addView(latin);
-        TextView headline = text("走到哪，讲到哪", 25, ink, true); headline.setPadding(0, 0, 0, dp(3)); intro.addView(headline);
+        intro.setPadding(dp(22), dp(4), dp(22), dp(13)); root.addView(intro);
+        LinearLayout signature = new LinearLayout(this); signature.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView brand = text("沿途", 18, green, true); signature.addView(brand);
+        TextView latin = text(" /  YAN TU", 12, green, false);
+        latin.setLetterSpacing(.11f); signature.addView(latin); intro.addView(signature);
+        TextView headline = text("走到哪，讲到哪", 25, ink, true);
+        headline.setPadding(0, dp(8), 0, dp(3)); intro.addView(headline);
         voiceStatusText = text("播讲时说“沿途”提问 · 史实附来源", 12, green, false);
         voiceStatusText.setPadding(dp(8), 0, 0, 0); intro.addView(voiceStatusText);
 
         LinearLayout location = new LinearLayout(this); location.setOrientation(LinearLayout.VERTICAL);
-        location.setBackgroundColor(sage);
-        location.setPadding(dp(22), dp(15), dp(22), dp(17));
+        location.setBackground(round(sage, 17));
+        location.setPadding(dp(18), dp(14), dp(18), dp(16));
         TextView locTitle = text("到点讲解", 17, ink, true); location.addView(locTitle);
         statusText = text("定位尚未开启", 13, Color.rgb(97, 116, 106), false);
         statusText.setPadding(0, dp(4), 0, dp(8)); location.addView(statusText);
@@ -133,7 +135,9 @@ public final class MainActivity extends Activity {
         stop.setOnClickListener(v -> { stopService(new Intent(this, GuideService.class)); statusText.setText("到点讲解已停止"); });
         LinearLayout.LayoutParams stopSize = new LinearLayout.LayoutParams(dp(64), dp(46));
         stopSize.setMargins(dp(8), 0, 0, 0); locationActions.addView(stop, stopSize);
-        location.addView(locationActions); root.addView(location);
+        location.addView(locationActions);
+        LinearLayout.LayoutParams locationMargin = new LinearLayout.LayoutParams(-1, -2);
+        locationMargin.setMargins(dp(18), 0, dp(18), 0); root.addView(location, locationMargin);
 
         LinearLayout body = new LinearLayout(this); body.setOrientation(LinearLayout.VERTICAL);
         body.setPadding(dp(18), 0, dp(18), dp(24)); root.addView(body);
@@ -157,11 +161,11 @@ public final class MainActivity extends Activity {
             }
         }
         LinearLayout.LayoutParams exploreMargin = new LinearLayout.LayoutParams(-1, -2);
-        exploreMargin.setMargins(0, dp(15), 0, 0); body.addView(exploreActions, exploreMargin);
+        exploreMargin.setMargins(0, dp(12), 0, 0); body.addView(exploreActions, exploreMargin);
         explorePanel = card(); explorePanel.setVisibility(View.GONE); body.addView(explorePanel);
 
         LinearLayout section = new LinearLayout(this); section.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        section.setPadding(0, dp(15), 0, dp(3));
+        section.setPadding(0, dp(11), 0, dp(2));
         TextView sectionTitle = text("选择眼前的地方", 19, ink, true);
         section.addView(sectionTitle, new LinearLayout.LayoutParams(0, -2, 1f));
         LinearLayout speed = new LinearLayout(this); speed.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -180,15 +184,15 @@ public final class MainActivity extends Activity {
             });
         }
         section.addView(speed); body.addView(section); updateRateButtons();
-        LinearLayout spotList = card(); spotList.setPadding(dp(12), dp(2), dp(12), dp(4));
-        spotList.setBackground(round(Color.WHITE, 12)); body.addView(spotList);
+        LinearLayout spotList = new LinearLayout(this); spotList.setOrientation(LinearLayout.VERTICAL);
+        spotList.setPadding(dp(2), 0, dp(2), 0); body.addView(spotList);
         for (Spots.Spot spot : Spots.ALL) {
             LinearLayout spotCard = new LinearLayout(this); spotCard.setOrientation(LinearLayout.VERTICAL);
-            spotCard.setPadding(dp(2), dp(9), dp(2), dp(9)); spotCards.put(spot.id, spotCard);
+            spotCard.setPadding(dp(2), dp(7), dp(2), dp(7)); spotCards.put(spot.id, spotCard);
             LinearLayout header = new LinearLayout(this); header.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            TextView item = text(spot.name + "  ⌄\n" + spot.area, 15, ink, false);
+            TextView item = text(spot.name + "  ⌄\n" + spot.area, 14, ink, false);
             spotHeaders.put(spot.id, item);
-            item.setPadding(0, dp(6), 0, dp(6)); item.setContentDescription(spot.name + "，展开或收起讲解");
+            item.setPadding(0, dp(5), 0, dp(5)); item.setContentDescription(spot.name + "，展开或收起讲解");
             item.setOnClickListener(v -> { if (current == spot && detail.getParent() == spotCard) collapseSpot(); else showSpot(spot); });
             final float[] touchY = new float[1];
             item.setOnTouchListener((v, event) -> {
@@ -210,7 +214,7 @@ public final class MainActivity extends Activity {
                 if (current != spot) showSpot(spot);
                 toggleNarration(play, spot.story);
             });
-            LinearLayout.LayoutParams playSize = new LinearLayout.LayoutParams(dp(44), dp(48));
+            LinearLayout.LayoutParams playSize = new LinearLayout.LayoutParams(dp(40), dp(46));
             playSize.setMargins(dp(2), 0, 0, 0); header.addView(play, playSize);
             spotPlayButtons.put(spot.id, play);
             if (spot.radius > 0) {
@@ -218,12 +222,12 @@ public final class MainActivity extends Activity {
                 route.setContentDescription("高德步行去" + spot.name);
                 route.setOnClickListener(v -> navigateTo(spot));
                 route.setTextSize(13); route.setPadding(0, 0, 0, 0);
-                LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(dp(72), dp(46));
-                size.setMargins(dp(12), 0, 0, 0); header.addView(route, size);
+                LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(dp(68), dp(42));
+                size.setMargins(dp(16), 0, dp(2), 0); header.addView(route, size);
             }
             spotCard.addView(header); spotList.addView(spotCard);
             if (spot != Spots.ALL.get(Spots.ALL.size() - 1)) {
-                View divider = new View(this); divider.setBackgroundColor(Color.rgb(231, 234, 225));
+                View divider = new View(this); divider.setBackgroundColor(Color.rgb(224, 232, 228));
                 spotList.addView(divider, new LinearLayout.LayoutParams(-1, dp(1)));
             }
         }
