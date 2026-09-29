@@ -191,6 +191,12 @@ public final class MainActivity extends Activity {
                         navigateTo(destination); return;
                     }
                 }
+                if (question.contains("吃") || question.contains("饭店") || question.contains("餐馆") || question.contains("夜景") || question.contains("演出") || question.contains("花鼓戏")) {
+                    String keyword = question.contains("演出") || question.contains("花鼓戏") ? "演出"
+                        : question.contains("夜景") ? "夜景" : "湘菜 正餐";
+                    answerText.setText("已打开高德搜索“" + keyword + "”；请核对当天营业或演出信息。");
+                    searchMap(keyword); return;
+                }
                 String answer = question.contains("附近") || question.contains("周围") || question.contains("前面有什么")
                     ? nearbyText() : Spots.answer(current, question);
                 answerText.setText("你问：“" + heard.get(0) + "”\n" + answer);
@@ -262,11 +268,15 @@ public final class MainActivity extends Activity {
         for (Spots.Spot spot : Spots.ALL) if (spot.radius > 0) candidates.add(spot);
         candidates.sort((a, b) -> Double.compare(nearbyDistance(a, position, gcj), nearbyDistance(b, position, gcj)));
         StringBuilder result = new StringBuilder("附近已收录：");
-        for (int i = 0; i < Math.min(3, candidates.size()); i++) {
-            Spots.Spot spot = candidates.get(i);
-            result.append(i == 0 ? "" : "、").append(spot.name).append("约")
-                .append(Math.round(nearbyDistance(spot, position, gcj))).append("米");
+        int count = 0;
+        for (Spots.Spot spot : candidates) {
+            double meters = nearbyDistance(spot, position, gcj);
+            if (meters > 2000 || count >= 3) break;
+            result.append(count == 0 ? "" : "、").append(spot.name).append("约")
+                .append(Math.round(meters)).append("米");
+            count++;
         }
+        if (count == 0) return "附近两公里内暂无收录的长沙讲解点。";
         return result.append("。这是直线距离；步行路线请点选目的地后打开地图。").toString();
     }
     private double nearbyDistance(Spots.Spot spot, Location original, double[] gcj) {

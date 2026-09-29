@@ -46,26 +46,25 @@ public final class GuideService extends Service implements LocationListener, Tex
             checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             status("没有定位权限，请先在 App 中开启"); stopSelf(); return START_NOT_STICKY;
         }
-        try {
-            boolean registered = false;
-            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 5000, 15, this);
-                registered = true;
+        boolean registered = false;
+        for (String provider : new String[]{LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER}) {
+            try {
+                if (locationManager.isProviderEnabled(provider)) {
+                    locationManager.requestLocationUpdates(provider, 5000, 15, this);
+                    registered = true;
+                }
+            } catch (SecurityException | IllegalArgumentException ignored) {
+                // 只授权模糊定位时 GPS 可能拒绝；仍尝试网络定位。
             }
-            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 5000, 15, this);
-                registered = true;
-            }
-            if (!registered) { status("手机定位未开启，请在系统设置中开启"); stopSelf(); return START_NOT_STICKY; }
-            status("到点讲解运行中；点击通知可返回应用");
-        } catch (SecurityException | IllegalArgumentException e) {
-            status("定位暂不可用，请检查手机定位设置"); stopSelf();
         }
+        if (!registered) { status("定位暂不可用，请检查定位权限与系统设置"); stopSelf(); return START_NOT_STICKY; }
+        status("到点讲解运行中；点击通知可返回应用");
         return START_NOT_STICKY;
     }
 
     @Override public void onLocationChanged(Location location) {
-        if (!location.hasAccuracy() || location.getAccuracy() > 80) {
+        if (!location.hasAccuracy() || location.getAccuracy() > 80 ||
+            Math.abs(System.currentTimeMillis() - location.getTime()) > 120000) {
             status("定位误差较大，可手动选景点"); return;
         }
         Spots.Spot spot = Spots.nearest(location);

@@ -10,5 +10,6 @@ for (const name of ['index.html', 'app.js', 'style.css', 'sw.js', 'icon.svg', 'm
   await fs.copyFile(path.join(root, 'public', name), path.join(dest, name));
 }
 await fs.copyFile(path.join(root, 'lib/geo.js'), path.join(dest, 'geo.js'));
+await fs.copyFile(path.join(root, 'lib/guide.js'), path.join(dest, 'guide.js'));
 await fs.copyFile(path.join(root, 'data/places.js'), path.join(dest, 'places.js'));
 console.log('Static site built:', dest);

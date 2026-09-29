@@ -1,4 +1,5 @@
 import { nearestPlace, distanceM, wgsToGcj } from '/geo.js';
+import { answerOffline } from '/guide.js';
 import { places as bundledPlaces } from '/places.js';
 
 const $ = id => document.getElementById(id);
@@ -151,13 +152,21 @@ function imageData(file) {
 }
 $('ask-form').onsubmit = async event => {
   event.preventDefault(); if (!state.current) return;
-  if (!state.aiEnabled) { $('answer').textContent = 'AI 追问尚未配置。景点文字讲解和朗读可直接使用。'; $('answer').classList.remove('hidden'); return; }
+  const question = $('question').value.trim();
+  if (!state.aiEnabled) {
+    const reply = answerOffline(question, state.current, state.places);
+    $('answer').textContent = reply.text; $('answer').classList.remove('hidden');
+    if (reply.action === 'nearby') showNearby();
+    if (reply.action === 'route') routeTo(reply.destination);
+    if (reply.action === 'search') mapSearch(reply.keyword);
+    return;
+  }
   const file = $('photo').files[0];
   if (file && (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 4 * 1024 * 1024)) { $('answer').textContent = '照片需为小于 4 MB 的 JPEG、PNG 或 WebP。'; $('answer').classList.remove('hidden'); return; }
   const placeId = state.current.id, artifactId = state.artifact?.id;
   $('ask').disabled = true; $('answer').textContent = '正在查资料回答…'; $('answer').classList.remove('hidden');
   try {
-    const response = await fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ placeId, artifactId, question: $('question').value.trim(), image: file ? await imageData(file) : undefined }) });
+    const response = await fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ placeId, artifactId, question, image: file ? await imageData(file) : undefined }) });
     const data = await response.json();
     if (state.current?.id === placeId) $('answer').textContent = response.ok ? data.answer : data.error;
   } catch { $('answer').textContent = '网络暂不可用。已核实的文字讲解仍可阅读。'; }
@@ -170,5 +179,10 @@ try {
   if (response.ok) { const data = await response.json(); state.places = data.places; state.aiEnabled = data.aiEnabled; }
 } catch { /* 静态站点使用随应用附带的核实讲解 */ }
 renderPlaces();
-if (!state.aiEnabled) $('question').placeholder = 'AI 问答需先配置接口；文字讲解可直接使用';
+if (!state.aiEnabled) {
+  $('question').placeholder = '例如：这里有什么典故？我要去杜甫江阁';
+  $('photo-button').classList.add('hidden');
+  $('ask-title').textContent = '问沿途';
+  $('ask-hint').textContent = '可问已收录的故事、现场线索和目的地。其他问题会如实说不知道。';
+}
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
