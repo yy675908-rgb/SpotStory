@@ -3,6 +3,8 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <queries>
         <package android:name="com.sankuai.meituan"/>
@@ -17,5 +19,6 @@
             </intent-filter>
         </activity>
         <service android:name="com.spotstory.guide.GuideService" android:exported="false" android:foregroundServiceType="location"/>
+        <service android:name="com.spotstory.guide.NarrationNoticeService" android:exported="false" android:foregroundServiceType="mediaPlayback"/>
     </application>
 </manifest>
