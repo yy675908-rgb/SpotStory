@@ -12,6 +12,6 @@ test('线下提问可打开指定地点路线，普通问题不编造事实', ()
 });
 test('附近和现场细节在无 AI 时仍可用', () => {
   assert.equal(answerOffline('附近有什么', current, places).action, 'nearby');
-  assert.equal(answerOffline('附近有啥好吃的', current, places).keyword, '湘菜 正餐');
+  assert.equal(answerOffline('附近有啥好吃的', current, places).action, 'food');
   assert.equal(answerOffline('到现场看什么', current, places).text, current.lookFor);
 });

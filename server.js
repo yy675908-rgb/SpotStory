@@ -11,6 +11,7 @@ const files = new Map([
   ['/geo.js', ['../lib/geo.js', 'text/javascript; charset=utf-8']],
   ['/guide.js', ['../lib/guide.js', 'text/javascript; charset=utf-8']],
   ['/places.js', ['../data/places.js', 'text/javascript; charset=utf-8']],
+  ['/restaurants.js', ['../data/restaurants.js', 'text/javascript; charset=utf-8']],
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
   ['/manifest.webmanifest', ['manifest.webmanifest', 'application/manifest+json']],
   ['/sw.js', ['sw.js', 'text/javascript; charset=utf-8']],

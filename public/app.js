@@ -1,19 +1,37 @@
 import { nearestPlace, distanceM, wgsToGcj } from '/geo.js';
 import { answerOffline } from '/guide.js';
 import { places as bundledPlaces } from '/places.js';
+import { restaurants } from '/restaurants.js';
 
 const $ = id => document.getElementById(id);
-const state = { places: [], current: null, artifact: null, watchId: null, triggered: new Set(), favorites: new Set(), onlyFavorites: false, aiEnabled: false };
+const state = { places: [], current: null, artifact: null, watchId: null, position: null, triggered: new Set(), favorites: new Set(), onlyFavorites: false, aiEnabled: false };
 try { state.favorites = new Set(JSON.parse(localStorage.getItem('tour-guide-favorites') || '[]')); } catch { /* 无法读取时仍可浏览 */ }
 
-function speak(text) {
+let playback = { owner: null, utterance: null, paused: false };
+function updatePlayback() {
+  $('listen').textContent = `${playback.owner === 'listen' && !playback.paused ? 'Ⅱ' : '▶'} 听完整故事`;
+  $('brief').textContent = `${playback.owner === 'brief' && !playback.paused ? 'Ⅱ' : '▶'} 听简短介绍`;
+}
+function stopPlayback() {
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  playback = { owner: null, utterance: null, paused: false }; updatePlayback();
+}
+function speak(text, owner = null) {
   if (!('speechSynthesis' in window)) { $('location-status').textContent = '当前浏览器不支持朗读，仍可阅读文字'; return; }
-  speechSynthesis.cancel();
+  stopPlayback();
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = 'zh-CN'; utterance.rate = Number($('speech-rate').value);
   const chosen = speechSynthesis.getVoices().find(v => v.voiceURI === $('speech-voice').value);
   if (chosen) utterance.voice = chosen;
+  playback = { owner, utterance, paused: false }; updatePlayback();
+  utterance.onend = utterance.onerror = () => { if (playback.utterance === utterance) stopPlayback(); };
   speechSynthesis.speak(utterance);
+}
+function togglePlayback(owner, text) {
+  if (playback.owner === owner && playback.utterance) {
+    if (playback.paused) speechSynthesis.resume(); else speechSynthesis.pause();
+    playback.paused = !playback.paused; updatePlayback();
+  } else speak(text, owner);
 }
 function renderVoices() {
   if (!('speechSynthesis' in window)) return;
@@ -59,6 +77,7 @@ function renderArtifacts() {
   }
 }
 function selectPlace(place, auto = false) {
+  stopPlayback();
   state.current = place; state.artifact = null;
   $('detail').classList.remove('hidden'); $('detail-area').textContent = place.area;
   $('detail-name').textContent = place.name; $('detail-intro').textContent = place.intro;
@@ -71,8 +90,33 @@ function selectPlace(place, auto = false) {
   $('favorite').setAttribute('aria-label', state.favorites.has(place.id) ? '取消收藏' : '收藏当前景点');
   $('answer').classList.add('hidden'); $('question').value = ''; $('photo').value = ''; $('photo-name').textContent = '';
   showSources(place); renderArtifacts(); renderPlaces();
+  $('food-panel').open = false;
   $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
   if (auto) speak(place.story ?? place.intro);
+}
+function openMeituan(keyword) {
+  const url = `imeituan://www.meituan.com/search?q=${encodeURIComponent(keyword)}`;
+  window.location.href = url;
+  const timer = setTimeout(() => { if (!document.hidden) window.open('https://i.meituan.com/', '_blank', 'noopener'); }, 1600);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) clearTimeout(timer); }, { once: true });
+}
+function renderFood() {
+  const box = $('food-list'); box.replaceChildren();
+  const point = state.position ?? (state.current?.gcj ?? (state.current?.wgs && wgsToGcj(state.current.wgs)));
+  if (!point) { box.textContent = '请先选一处室外景点。'; return; }
+  const near = restaurants.map(item => ({ ...item, meters: distanceM(point, item.gcj) }))
+    .filter(item => item.meters <= 3500).sort((a, b) => a.meters - b.meters);
+  if (!near.length) { box.textContent = '这处周边暂未收录餐厅，可在美团继续找。'; return; }
+  const note = document.createElement('p'); note.className = 'hint'; note.textContent = `按预计步行距离从近到远 · ${state.position ? '手机定位' : '所选景点'}为起点`;
+  box.append(note);
+  for (const item of near) {
+    const row = document.createElement('div'); row.className = 'food-row';
+    const info = document.createElement('div'); const title = document.createElement('strong'); title.textContent = item.name;
+    const detail = document.createElement('small'); detail.textContent = `${item.kind} · 预计步行约 ${Math.round(item.meters * 1.3 / 50) * 50} 米`;
+    info.append(title, detail); const action = document.createElement('button'); action.type = 'button'; action.textContent = '⌖';
+    action.setAttribute('aria-label', `美团查找${item.name}`); action.onclick = () => openMeituan(item.name);
+    row.append(info, action); box.append(row);
+  }
 }
 function routeTo(place) {
   if (!place || place.kind !== 'outdoor') return;
@@ -93,6 +137,7 @@ function showNearby() {
     if (position.coords.accuracy > 100) { box.textContent = `定位误差约 ${Math.round(position.coords.accuracy)} 米，暂不判断附近。`; return; }
     const wgs = { lat: position.coords.latitude, lng: position.coords.longitude };
     const gcj = wgsToGcj(wgs);
+    state.position = gcj; if ($('food-panel').open) renderFood();
     const matches = state.places.filter(p => p.kind === 'outdoor').map(place => ({
       place, meters: distanceM(place.gcj ? gcj : wgs, place.gcj ?? place.wgs)
     })).filter(item => item.meters <= 2000).sort((a, b) => a.meters - b.meters).slice(0, 4);
@@ -111,6 +156,7 @@ function startLocation() {
   $('location-status').textContent = '正在获取位置…';
   state.watchId = navigator.geolocation.watchPosition(position => {
     const { latitude: lat, longitude: lng, accuracy } = position.coords;
+    if (accuracy <= 100) { state.position = wgsToGcj({ lat, lng }); if ($('food-panel').open) renderFood(); }
     if (accuracy > 80) { $('location-status').textContent = `定位误差约 ${Math.round(accuracy)} 米，请手动选点`; return; }
     const match = nearestPlace({ lat, lng, accuracy }, state.places);
     $('location-status').textContent = match ? `附近：${match.place.name}（约 ${Math.round(match.meters)} 米）` : '已定位，附近暂无收录的室外讲解点';
@@ -120,12 +166,19 @@ function startLocation() {
 }
 
 $('locate').onclick = startLocation;
-$('listen').onclick = () => speak(state.artifact?.intro ?? state.current.story ?? state.current.intro);
-$('brief').onclick = () => speak(state.artifact?.intro ?? state.current.intro);
-$('stop').onclick = () => { if ('speechSynthesis' in window) speechSynthesis.cancel(); };
+$('listen').onclick = () => togglePlayback('listen', state.artifact?.intro ?? state.current.story ?? state.current.intro);
+$('brief').onclick = () => togglePlayback('brief', state.artifact?.intro ?? state.current.intro);
+$('stop').onclick = stopPlayback;
 $('route').onclick = () => routeTo(state.current);
 $('nearby').onclick = showNearby;
-$('food-search').onclick = () => mapSearch('湘菜 正餐');
+$('food-panel').ontoggle = () => {
+  if (!$('food-panel').open) return;
+  renderFood();
+  if (navigator.geolocation) navigator.geolocation.getCurrentPosition(position => {
+    if (position.coords.accuracy <= 100) { state.position = wgsToGcj({ lat: position.coords.latitude, lng: position.coords.longitude }); renderFood(); }
+  }, () => {}, { enableHighAccuracy: true, maximumAge: 10000, timeout: 8000 });
+};
+$('food-more').onclick = () => openMeituan('长沙 不辣 美食');
 $('fun-search').onclick = () => mapSearch('夜景');
 $('show-search').onclick = () => mapSearch('演出');
 $('speech-rate').value = localStorage.getItem('tour-guide-rate') || '0.96';
@@ -157,6 +210,7 @@ $('ask-form').onsubmit = async event => {
     const reply = answerOffline(question, state.current, state.places);
     $('answer').textContent = reply.text; $('answer').classList.remove('hidden');
     if (reply.action === 'nearby') showNearby();
+    if (reply.action === 'food') $('food-panel').open = true;
     if (reply.action === 'route') routeTo(reply.destination);
     if (reply.action === 'search') mapSearch(reply.keyword);
     return;

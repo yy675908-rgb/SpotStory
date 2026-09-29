@@ -18,7 +18,9 @@ import android.os.Looper;
 import android.speech.RecognizerIntent;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.Voice;
+import android.speech.tts.UtteranceProgressListener;
 import android.view.View;
+import android.view.MotionEvent;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -35,11 +37,18 @@ public final class MainActivity extends Activity {
     private TextToSpeech tts;
     private boolean ttsReady;
     private ScrollView scroll;
-    private LinearLayout root, detail, artifacts;
+    private LinearLayout root, detail, artifacts, foodPanel;
     private TextView statusText, nameText, introText, storyText, lookForText, answerText, areaText;
-    private Button favoriteButton, rateButton;
+    private Button favoriteButton, rateButton, speakButton, briefButton, foodToggle;
     private Spots.Spot current;
     private long lastArrivalHandled;
+    private final List<String> speechChunks = new ArrayList<>();
+    private int speechIndex;
+    private long speechGeneration;
+    private String activeSpeechId;
+    private boolean speaking;
+    private Button speechButton;
+    private float foodTouchY;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -49,6 +58,19 @@ public final class MainActivity extends Activity {
                 VoiceSettings.apply(this, tts); ttsReady = true;
             }
             else if (statusText != null) statusText.setText("未找到中文语音引擎，文字讲解仍可阅读");
+        });
+        tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+            @Override public void onStart(String id) { }
+            @Override public void onDone(String id) {
+                runOnUiThread(() -> {
+                    if (!speaking || !id.equals(activeSpeechId)) return;
+                    speechIndex++;
+                    playNextChunk();
+                });
+            }
+            @Override public void onError(String id) {
+                runOnUiThread(() -> { if (id.equals(activeSpeechId)) stopNarration(); });
+            }
         });
         buildScreen();
         showSpot(Spots.ALL.get(0));
@@ -91,16 +113,28 @@ public final class MainActivity extends Activity {
         storyHeading.setPadding(0, dp(18), 0, dp(5)); detail.addView(storyHeading);
         storyText = text("", 15, ink, false); storyText.setLineSpacing(dp(5), 1f); detail.addView(storyText);
         artifacts = new LinearLayout(this); artifacts.setOrientation(LinearLayout.VERTICAL); detail.addView(artifacts);
-        Button speak = button("▶ 听完整故事", green, Color.WHITE);
-        speak.setOnClickListener(v -> say(current == null ? "" : current.story)); detail.addView(speak);
-        Button brief = button("▶ 听简短介绍", Color.WHITE, green);
-        brief.setOnClickListener(v -> say(current == null ? "" : current.intro)); detail.addView(brief);
+        speakButton = button("▶ 听完整故事", green, Color.WHITE);
+        speakButton.setOnClickListener(v -> toggleNarration(speakButton, current == null ? "" : current.story)); detail.addView(speakButton);
+        briefButton = button("▶ 听简短介绍", Color.WHITE, green);
+        briefButton.setOnClickListener(v -> toggleNarration(briefButton, current == null ? "" : current.intro)); detail.addView(briefButton);
         Button navigate = button("↗ 去这里 · 高德步行路线", Color.rgb(236, 200, 141), ink);
         navigate.setOnClickListener(v -> navigateTo(current)); detail.addView(navigate);
         Button nearby = button("附近有什么", Color.WHITE, green);
         nearby.setOnClickListener(v -> { String result = nearbyText(); answerText.setText(result); say(result); }); detail.addView(nearby);
-        Button food = button("附近找湘菜正餐", Color.WHITE, green);
-        food.setOnClickListener(v -> searchMap("湘菜 正餐")); detail.addView(food);
+        foodToggle = button("⌄ 周边吃什么", Color.WHITE, green);
+        foodToggle.setOnClickListener(v -> setFoodExpanded(foodPanel.getVisibility() != View.VISIBLE));
+        foodToggle.setOnTouchListener((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) { foodTouchY = event.getY(); return true; }
+            if (event.getAction() == MotionEvent.ACTION_UP) {
+                float dy = event.getY() - foodTouchY;
+                if (Math.abs(dy) > dp(36)) setFoodExpanded(dy > 0);
+                else v.performClick();
+                return true;
+            }
+            return true;
+        }); detail.addView(foodToggle);
+        foodPanel = new LinearLayout(this); foodPanel.setOrientation(LinearLayout.VERTICAL);
+        foodPanel.setVisibility(View.GONE); detail.addView(foodPanel);
         Button fun = button("附近找夜景", Color.WHITE, green);
         fun.setOnClickListener(v -> searchMap("夜景")); detail.addView(fun);
         Button show = button("附近找演出", Color.WHITE, green);
@@ -114,7 +148,7 @@ public final class MainActivity extends Activity {
         Button voiceChoice = button("选择手机中文音色", Color.WHITE, green);
         voiceChoice.setOnClickListener(v -> chooseVoice()); detail.addView(voiceChoice);
         Button stopSpeech = button("■ 停止朗读", Color.WHITE, green);
-        stopSpeech.setOnClickListener(v -> { if (tts != null) tts.stop(); }); detail.addView(stopSpeech);
+        stopSpeech.setOnClickListener(v -> stopNarration()); detail.addView(stopSpeech);
         favoriteButton = button("☆ 收藏", Color.WHITE, green); favoriteButton.setOnClickListener(v -> toggleFavorite()); detail.addView(favoriteButton);
         Button ask = button("🎙 说话提问", Color.WHITE, green); ask.setOnClickListener(v -> askByVoice()); detail.addView(ask);
         answerText = text("", 15, ink, false); answerText.setPadding(0, dp(8), 0, dp(6)); detail.addView(answerText);
@@ -126,7 +160,9 @@ public final class MainActivity extends Activity {
     }
 
     private void showSpot(Spots.Spot spot) {
+        stopNarration();
         current = spot; areaText.setText(spot.area); nameText.setText(spot.name); introText.setText(spot.intro); storyText.setText(spot.story);
+        foodPanel.setVisibility(View.GONE); foodToggle.setText("⌄ 周边吃什么");
         lookForText.setText(spot.lookFor.isEmpty() ? "现场细节尚未核实，请看标识。" : spot.lookFor);
         answerText.setText(""); artifacts.removeAllViews();
         if (!spot.artifacts.isEmpty()) {
@@ -138,6 +174,69 @@ public final class MainActivity extends Activity {
             }
         }
         updateFavorite();
+    }
+
+    private void setFoodExpanded(boolean open) {
+        foodPanel.setVisibility(open ? View.VISIBLE : View.GONE);
+        foodToggle.setText(open ? "⌃ 收起餐厅" : "⌄ 周边吃什么");
+        if (open) renderFood();
+    }
+
+    private void renderFood() {
+        foodPanel.removeAllViews();
+        if (current == null) return;
+        if (current.radius > 0) {
+            double[] point = foodOrigin();
+            List<Restaurants.Restaurant> nearby = Restaurants.near(point[0], point[1]);
+            foodPanel.addView(text("按预计步行距离从近到远 · 以高德路线为准", 13, green, false));
+            if (nearby.isEmpty()) foodPanel.addView(text("这处周边暂未收录餐厅，可在美团继续找。", 14, ink, false));
+            for (Restaurants.Restaurant item : nearby) {
+                LinearLayout row = new LinearLayout(this); row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                row.setPadding(0, dp(11), 0, dp(11));
+                long meters = Math.round(Geo.distance(point[0], point[1], item.lat, item.lng) * 1.3 / 50) * 50;
+                TextView info = text(item.name + "\n" + item.kind + " · 预计步行约" + meters + "米", 14, ink, false);
+                info.setLineSpacing(dp(3), 1f);
+                row.addView(info, new LinearLayout.LayoutParams(0, -2, 1f));
+                Button map = button("⌖", Color.rgb(239, 246, 238), green);
+                map.setContentDescription("美团查找" + item.name);
+                map.setOnClickListener(v -> openMeituan(item.name));
+                LinearLayout.LayoutParams iconSize = new LinearLayout.LayoutParams(dp(52), dp(52));
+                iconSize.setMargins(dp(8), 0, 0, 0); row.addView(map, iconSize);
+                foodPanel.addView(row);
+            }
+        } else foodPanel.addView(text("请选一个室外景点查看其周边餐厅。", 14, ink, false));
+        Button more = button("美团查看更多餐厅 ↗", Color.rgb(239, 246, 238), green);
+        more.setOnClickListener(v -> openMeituan("长沙 不辣 美食")); foodPanel.addView(more);
+        foodPanel.addView(text("步行距离按直线距离估算；口味和营业请在美团核对，点单说明不吃辣。", 12, green, false));
+    }
+
+    private double[] foodOrigin() {
+        double[] spot = current.gcj ? new double[]{current.lat, current.lng} : Geo.wgsToGcj(current.lat, current.lng);
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) return spot;
+        LocationManager manager = (LocationManager) getSystemService(LOCATION_SERVICE);
+        Location best = null;
+        for (String provider : new String[]{LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER}) {
+            try {
+                Location value = manager.getLastKnownLocation(provider);
+                if (value != null && (best == null || value.getTime() > best.getTime())) best = value;
+            } catch (SecurityException | IllegalArgumentException ignored) { }
+        }
+        if (best == null || System.currentTimeMillis() - best.getTime() > 120000 ||
+            !best.hasAccuracy() || best.getAccuracy() > 100) return spot;
+        return Geo.wgsToGcj(best.getLatitude(), best.getLongitude());
+    }
+
+    private void openMeituan(String keyword) {
+        Uri uri = Uri.parse("imeituan://www.meituan.com/search").buildUpon()
+            .appendQueryParameter("q", keyword).build();
+        Intent intent = new Intent(Intent.ACTION_VIEW, uri); intent.setPackage("com.sankuai.meituan");
+        try { startActivity(intent); }
+        catch (ActivityNotFoundException | SecurityException e) {
+            Intent launch = getPackageManager().getLaunchIntentForPackage("com.sankuai.meituan");
+            if (launch != null) startActivity(launch);
+            else android.widget.Toast.makeText(this, "请先安装美团 App", android.widget.Toast.LENGTH_LONG).show();
+        }
     }
 
     private void toggleFavorite() {
@@ -196,9 +295,13 @@ public final class MainActivity extends Activity {
                         navigateTo(destination); return;
                     }
                 }
-                if (question.contains("吃") || question.contains("饭店") || question.contains("餐馆") || question.contains("夜景") || question.contains("演出") || question.contains("花鼓戏")) {
+                if (question.contains("吃") || question.contains("饭店") || question.contains("餐馆") || question.contains("美食")) {
+                    setFoodExpanded(true);
+                    answerText.setText("已列出附近餐厅；点 ⌖ 在美团查找店铺。"); return;
+                }
+                if (question.contains("夜景") || question.contains("演出") || question.contains("花鼓戏")) {
                     String keyword = question.contains("演出") || question.contains("花鼓戏") ? "演出"
-                        : question.contains("夜景") ? "夜景" : "湘菜 正餐";
+                        : "夜景";
                     answerText.setText("已打开高德搜索“" + keyword + "”；请核对当天营业或演出信息。");
                     searchMap(keyword); return;
                 }
@@ -210,9 +313,35 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void say(String content) {
-        if (ttsReady) tts.speak(content, TextToSpeech.QUEUE_FLUSH, null, "manual");
-        else answerText.setText("系统中文语音尚未就绪，可阅读文字讲解");
+    private void say(String content) { startNarration(content, null); }
+    private void toggleNarration(Button button, String content) {
+        if (speechButton == button && !speechChunks.isEmpty()) {
+            if (speaking) { speaking = false; speechGeneration++; activeSpeechId = null; tts.stop(); updateSpeechButtons(); }
+            else { speaking = true; playNextChunk(); updateSpeechButtons(); }
+        } else startNarration(content, button);
+    }
+    private void startNarration(String content, Button button) {
+        if (!ttsReady) { answerText.setText("系统中文语音尚未就绪，可阅读文字讲解"); return; }
+        stopNarration();
+        for (String part : content.split("(?<=[。！？；])|\\n+")) if (!part.trim().isEmpty()) speechChunks.add(part.trim());
+        if (speechChunks.isEmpty()) return;
+        speechButton = button; speaking = true; playNextChunk(); updateSpeechButtons();
+    }
+    private void playNextChunk() {
+        if (!speaking || speechIndex >= speechChunks.size()) { stopNarration(); return; }
+        activeSpeechId = "manual:" + speechGeneration + ":" + speechIndex;
+        if (tts.speak(speechChunks.get(speechIndex), TextToSpeech.QUEUE_FLUSH, null, activeSpeechId) == TextToSpeech.ERROR)
+            stopNarration();
+    }
+    private void stopNarration() {
+        speaking = false; speechGeneration++; speechIndex = 0;
+        speechChunks.clear(); activeSpeechId = null; speechButton = null;
+        if (tts != null) tts.stop();
+        updateSpeechButtons();
+    }
+    private void updateSpeechButtons() {
+        if (speakButton != null) speakButton.setText((speaking && speechButton == speakButton ? "Ⅱ" : "▶") + " 听完整故事");
+        if (briefButton != null) briefButton.setText((speaking && speechButton == briefButton ? "Ⅱ" : "▶") + " 听简短介绍");
     }
     private void chooseVoice() {
         if (!ttsReady) { answerText.setText("系统中文语音尚未就绪"); return; }
@@ -233,25 +362,30 @@ public final class MainActivity extends Activity {
         if (spot == null) return;
         if (spot.radius <= 0) { answerText.setText("馆内位置请按现场导览手动寻找"); return; }
         double[] point = spot.gcj ? new double[]{spot.lat, spot.lng} : Geo.wgsToGcj(spot.lat, spot.lng);
-        Uri route = Uri.parse("https://uri.amap.com/navigation").buildUpon()
-            .appendQueryParameter("from", "")
-            .appendQueryParameter("to", point[1] + "," + point[0] + "," + spot.name)
-            .appendQueryParameter("mode", "walk").appendQueryParameter("callnative", "1")
-            .appendQueryParameter("src", "yantu").build();
-        try { startActivity(new Intent(Intent.ACTION_VIEW, route)); }
-        catch (ActivityNotFoundException e) { answerText.setText("没有可用的地图应用或浏览器"); }
+        openAmapRoute(point[0], point[1], spot.name, null);
+    }
+    private void openAmapRoute(double lat, double lng, String name, String poi) {
+        Uri.Builder builder = Uri.parse("amapuri://route/plan/").buildUpon()
+            .appendQueryParameter("sourceApplication", "沿途")
+            .appendQueryParameter("dlat", String.valueOf(lat)).appendQueryParameter("dlon", String.valueOf(lng))
+            .appendQueryParameter("dname", name).appendQueryParameter("dev", "0").appendQueryParameter("t", "2");
+        if (poi != null) builder.appendQueryParameter("did", poi);
+        Intent intent = new Intent(Intent.ACTION_VIEW, builder.build());
+        intent.setPackage("com.autonavi.minimap");
+        try { startActivity(intent); }
+        catch (ActivityNotFoundException | SecurityException e) {
+            android.widget.Toast.makeText(this, "无法打开高德地图，请检查安装", android.widget.Toast.LENGTH_LONG).show();
+        }
     }
     private void searchMap(String query) {
-        Uri.Builder builder = Uri.parse("https://uri.amap.com/search").buildUpon()
-            .appendQueryParameter("keyword", query).appendQueryParameter("city", "长沙");
-        if (current != null && current.radius > 0) {
-            double[] point = current.gcj ? new double[]{current.lat, current.lng} : Geo.wgsToGcj(current.lat, current.lng);
-            builder.appendQueryParameter("center", point[1] + "," + point[0]);
+        Uri url = Uri.parse("androidamap://poi").buildUpon()
+            .appendQueryParameter("sourceApplication", "沿途")
+            .appendQueryParameter("keywords", "长沙 " + query).appendQueryParameter("dev", "0").build();
+        Intent intent = new Intent(Intent.ACTION_VIEW, url); intent.setPackage("com.autonavi.minimap");
+        try { startActivity(intent); }
+        catch (ActivityNotFoundException | SecurityException e) {
+            android.widget.Toast.makeText(this, "无法打开高德地图，请检查安装", android.widget.Toast.LENGTH_LONG).show();
         }
-        Uri url = builder.appendQueryParameter("view", "list").appendQueryParameter("callnative", "1")
-            .appendQueryParameter("src", "yantu").build();
-        try { startActivity(new Intent(Intent.ACTION_VIEW, url)); }
-        catch (ActivityNotFoundException e) { answerText.setText("没有可用的地图应用或浏览器"); }
     }
     private String nearbyText() {
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
