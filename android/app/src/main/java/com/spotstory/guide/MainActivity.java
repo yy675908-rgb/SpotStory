@@ -183,10 +183,14 @@ public final class MainActivity extends Activity {
             if (heard != null && !heard.isEmpty()) {
                 String question = heard.get(0);
                 if (question.contains("怎么走") || question.contains("我要去") || question.contains("带我去")) {
+                    int marker = Math.max(question.lastIndexOf("去"), question.lastIndexOf("到"));
+                    String targetQuestion = marker >= 0 ? question.substring(marker + 1) : question;
                     for (Spots.Spot destination : Spots.ALL) if (destination.radius > 0 &&
-                        (question.contains(destination.name.split(" · ")[0]) ||
-                         (destination.id.equals("juzizhou") && question.contains("橘子洲")) ||
-                         (destination.id.equals("taiping") && question.contains("太平街")))) {
+                        (targetQuestion.contains(destination.name.split(" · ")[0]) ||
+                         (destination.id.equals("juzizhou") && targetQuestion.contains("橘子洲")) ||
+                         (destination.id.equals("taiping") && targetQuestion.contains("太平街")) ||
+                         (destination.id.equals("jiayi") && targetQuestion.contains("长怀井")) ||
+                         (destination.id.equals("huogong") && targetQuestion.contains("坡子街")))) {
                         answerText.setText("已打开去“" + destination.name + "”的步行路线");
                         navigateTo(destination); return;
                     }

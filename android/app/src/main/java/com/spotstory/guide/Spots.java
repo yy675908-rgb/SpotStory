@@ -104,6 +104,8 @@ final class Spots {
     }
 
     static String answer(Spot spot, String question) {
+        Spot mentioned = mentioned(question);
+        if (mentioned != null && mentioned != spot) return answer(mentioned, question);
         if (spot.id.equals("aiwan")) {
             if (question.contains("为什么叫") || question.contains("名字") || question.contains("典故") || question.contains("谁取名"))
                 return "它起初叫红叶亭，也叫爱枫亭。后来毕沅借杜牧《山行》的晚秋枫林诗意，改名爱晚亭。";
@@ -122,11 +124,31 @@ final class Spots {
             return question.contains("墓坑") ? spot.artifacts.get(2).intro : spot.artifacts.get(0).intro;
         if (spot.id.equals("mawangdui") && (question.contains("价值") || question.contains("历史") || question.contains("简") || question.contains("医学")))
             return "马王堆出土的漆器、丝织品和简帛，把西汉初年的生活技艺、知识与思想留在具体文物里。展览还以墓葬结构呈现当时的生命观。";
-        if (question.contains("在哪") || question.contains("找") || question.contains("哪里看"))
+        if (question.contains("在哪") || question.contains("找") || question.contains("哪里看") || question.contains("看什么")) {
+            if (mentioned == null && !question.contains("这里") && !question.contains("这儿") &&
+                !question.contains("这处") && !question.contains("现场") && !question.contains("眼前"))
+                return "请先选中想看的景点，或说出它的名称。";
             return spot.lookFor.isEmpty() ? "这里没有核实到更细的位置，请看现场标识。" : spot.lookFor;
+        }
         if (question.contains("历史") || question.contains("典故") || question.contains("故事") || question.contains("价值") || question.contains("为什么"))
             return spot.story;
         return "这个问题暂时没有核实过的答案。你可以听完整故事，或点开资料来源继续看。";
+    }
+
+    private static Spot mentioned(String question) {
+        for (Spot spot : ALL) {
+            String[] aliases;
+            switch (spot.id) {
+                case "juzizhou": aliases = new String[]{"橘子洲", "青年毛泽东艺术雕塑"}; break;
+                case "taiping": aliases = new String[]{"太平街", "太平老街"}; break;
+                case "jiayi": aliases = new String[]{"长怀井", "贾谊故居"}; break;
+                case "huogong": aliases = new String[]{"火宫殿", "坡子街"}; break;
+                case "huangxing": aliases = new String[]{"黄兴路", "黄兴南路"}; break;
+                default: aliases = new String[]{spot.name.split(" · ")[0]};
+            }
+            for (String name : aliases) if (question.contains(name)) return spot;
+        }
+        return null;
     }
 
     private Spots() {}

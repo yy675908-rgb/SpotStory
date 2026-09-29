@@ -6,7 +6,8 @@ import { places } from '../data/places.js';
 const current = places.find(p => p.id === 'wuyi-square');
 test('线下提问可打开指定地点路线，普通问题不编造事实', () => {
   assert.equal(answerOffline('我要去杜甫江阁', current, places).destination.id, 'dufu-pavilion');
-  assert.equal(answerOffline('长怀井在哪', current, places).action, undefined);
+  assert.equal(answerOffline('从五一广场到杜甫江阁怎么走', current, places).destination.id, 'dufu-pavilion');
+  assert.equal(answerOffline('长怀井在哪', current, places).text, places.find(p => p.id === 'jiayi-well').lookFor);
   assert.match(answerOffline('某石碑上有什么划痕', current, places).text, /暂无核实/);
 });
 test('附近和现场细节在无 AI 时仍可用', () => {
