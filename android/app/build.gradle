@@ -5,7 +5,7 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId 'com.spotstory.guide'
+        applicationId 'com.yantu.guide'
         minSdk 26
         targetSdk 34
         versionCode 2
